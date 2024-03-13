@@ -282,6 +282,10 @@ func isVersionUpToDate(releaseVer string) bool {
 }
 
 func skipNewVerInstallPkg() bool {
+	// 关闭自动更新检查
+	if util.ContainerStd == "std" {
+		return true
+	}
 	if !gulu.OS.IsWindows() && !gulu.OS.IsDarwin() {
 		return true
 	}
