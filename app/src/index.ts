@@ -194,3 +194,5 @@ window.showKeyboardToolbar = () => {
     // 防止 Pad 端报错
 };
 /// #endif
+
+console.log('-----test--------')
