@@ -521,6 +521,36 @@
 
 ## 块
 
+### 块详情
+
+* `/api/block/getBlockInfo`
+* 参数
+
+  ```json
+  {
+    "id": "20240313110333-akl0pz2",
+  }
+  ```
+
+    * `id`：rootID || boxID ?笔记id
+
+* 返回值
+
+  ```json
+  {
+      "code": 0,
+      "msg": "",
+      "data": {
+          "box": "20240313110330-u9110rt",
+          "path": "/20240313110333-akl0pz2.sy",
+          "rootChildID": "20240313110333-akl0pz2",
+          "rootID": "20240313110333-akl0pz2",
+          "rootIcon": "",
+          "rootTitle": "笔记"
+      }
+  }
+  ```
+
 ### 插入块
 
 * `/api/block/insertBlock`

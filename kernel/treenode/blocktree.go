@@ -199,11 +199,13 @@ func GetBlockTree(id string) (ret *BlockTree) {
 	}
 
 	hash := btHash(id)
+	println("[treenode] [GetBlockTree] id:", id, " hash:", hash)
 	val, ok := blockTrees.Load(hash)
 	if !ok {
 		return
 	}
 	slice := val.(*btSlice)
+	println("[treenode] [GetBlockTree] slice:", slice)
 	slice.m.Lock()
 	ret = slice.data[id]
 	slice.m.Unlock()
