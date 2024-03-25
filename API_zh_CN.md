@@ -20,6 +20,12 @@
     * [根据路径获取人类可读路径](#根据路径获取人类可读路径)
     * [根据 ID 获取人类可读路径](#根据-ID-获取人类可读路径)
     * [根据人类可读路径获取 IDs](#根据人类可读路径获取-IDs)
+* [文件](#文件)
+    * [获取文件](#获取文件)
+    * [写入文件](#写入文件)
+    * [删除文件](#删除文件)
+    * [重命名文件](#重命名文件)
+    * [列出文件](#列出文件)    
 * [资源文件](#资源文件)
     * [上传资源文件](#上传资源文件)
 * [块](#块)
@@ -42,12 +48,6 @@
 * [模板](#模板)
     * [渲染模板](#渲染模板)
     * [渲染 Sprig](#渲染-Sprig)
-* [文件](#文件)
-    * [获取文件](#获取文件)
-    * [写入文件](#写入文件)
-    * [删除文件](#删除文件)
-    * [重命名文件](#重命名文件)
-    * [列出文件](#列出文件)
 * [导出](#导出)
     * [导出 Markdown 文本](#导出-markdown-文本)
     * [导出文件与目录](#导出文件与目录)
@@ -62,6 +62,19 @@
     * [获取启动进度](#获取启动进度)
     * [获取系统版本](#获取系统版本)
     * [获取系统当前时间](#获取系统当前时间)
+    * [获取项目配置](#获取项目配置)
+    * [获取表情配置](#获取表情配置)
+    * [获取更新日志](#获取更新日志)
+* [集市](#集市)
+    * [获取插件列表](#获取插件列表)    
+* [存储](#存储)
+    * [获取本地存储](#获取本地存储)    
+* [同步](#同步)
+    * [获取启动同步](#获取启动同步)    
+* [设置](#设置)
+    * [获取云用户信息](#获取云用户信息)    
+* [snippet](#snippet)
+    * [获取snippet](#获取snippet)        
 
 ---
 
@@ -1486,3 +1499,225 @@
   ```
 
     * `data`: 精度为毫秒
+
+### 获取项目配置
+
+* `/api/system/getConf`
+* 不带参
+* 返回值
+
+  ```json
+  {
+    "code": 0,
+    "msg": "",
+    "data": {
+      "conf": {}
+    }
+  }
+  ```
+
+    * `conf`: config.json中的数据
+
+
+### 获取表情配置
+
+* `api/system/getEmojiConf`
+* 不带参
+* 返回值
+
+  ```json
+  {
+    "code": 0,
+    "msg": "",
+    "data": {
+        {
+          "id": "custom",
+          "items": [],
+          "title": "Custom",
+          "title_zh_cn": "自定义"
+        },
+        {
+          "id": "people",
+          "items": [
+            {
+                "description": "Grinning face",
+                "description_zh_cn": "咧嘴笑的脸",
+                "keywords": "face,grin,happy,脸,咧嘴笑,开心,)",
+                "unicode": "1f600"
+            },
+          ]    
+        }        
+    }
+  }
+  ```
+
+### 获取更新日志
+
+* `api/system/getChangelog`
+* 不带参
+* 返回值
+
+  ```json
+  {
+    "code": 0,
+    "msg": "",
+    "data": {
+      "html":"","show":false      
+    }
+  }
+  ```
+
+## 集市
+
+### 获取插件列表    
+
+* `/api/petal/loadPetals`
+*  参数
+```json
+{"frontend": "browser-desktop"}
+```
+
+* 返回值
+
+  ```json
+  {
+    "code": 0,
+    "msg": "",
+    "data": [
+        {
+            "name": "plugin-sample",
+            "displayName": "插件示例",
+            "enabled": true,
+            "incompatible": false,
+            "js": "",
+            "i18n": {
+                "addTopBarIcon": "使用插件添加一个顶栏按钮",
+                "byeMenu": "再见，菜单！",
+                "byePlugin": "再见，插件！",
+                "cancel": "取消",
+                "confirmRemove": "确认删除 ${name} 中的数据？",
+                "getTab": "在日志中打印出已打开的所有自定义页签",
+                "helloPlugin": "你好，插件！",
+                "insertEmoji": "插入表情",
+                "removeSpace": "移除空格",
+                "removedData": "数据已删除",
+                "save": "保存",
+                "showDialog": "弹出一个对话框"
+            }
+        },
+        {
+            "name": "siyuan-excel",
+            "displayName": "Excel 编辑器",
+            "enabled": true,
+            "incompatible": false,
+            "js": "const {\n    Plugin,\n    showMessage,\n    openTab\n} = \n        return window.require(fullLibpath)\n    }\n}\n\nmodule.exports = SiyuanExcel;",
+            "css": "",
+            "i18n": {
+                "siyuanExcel": "Excel 编辑器"
+            }
+        }
+    ]
+  }
+  ```
+
+## 存储
+
+### 获取本地存储
+
+* `api/storage/getLocalStorage`
+*  参数
+  ```json
+  {}
+  ```
+
+* 返回值
+
+  ```json
+  {
+      "code": 0,
+      "msg": "",
+      "data": {
+          "local-bazaar": {
+              "icon": "0",
+              "plugin": "2",
+              "template": "0",
+              "theme": "2",
+              "widget": "0"
+          },
+          "local-fileposition": {
+              "20240319110055-gw1hmh4": {
+                  "endId": "20240319110125-c8ig1xf",
+                  "rootId": "20240319110055-gw1hmh4",
+                  "scrollTop": 0,
+                  "startId": "20240319110055-wilrdje"
+              }
+          }
+      }
+  }
+  ```
+
+## 同步
+
+### 获取启动同步
+
+* `api/sync/getBootSync`
+*  参数
+  ```json
+  {}
+  ```
+
+* 返回值
+
+  ```json
+  {
+      "code": 0,
+      "msg": "",
+      "data": {
+
+      }
+  }
+  ```
+
+## 设置
+
+### 获取云用户信息  
+
+* `api/setting/getCloudUser`
+*  参数
+  ```json
+  {}
+  ```
+
+* 返回值
+
+  ```json
+  {
+      "code": 0,
+      "msg": "",
+      "data": {
+
+      }
+  }
+  ```
+
+## snippet
+
+### 获取snippet
+
+* `api/snippet/getSnippet`
+*  参数
+  ```json
+  {"type": "all", "enabled": 2}
+  ```
+
+* 返回值
+
+  ```json
+  {
+      "code": 0,
+      "msg": "",
+      "data": {
+        "snippets":[]
+      }
+  }
+  ```
