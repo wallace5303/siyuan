@@ -12,7 +12,9 @@
     * [删除笔记本](#删除笔记本)
     * [获取笔记本配置](#获取笔记本配置)
     * [保存笔记本配置](#保存笔记本配置)
-* [文档](#文档)
+* [文档](#文档) 
+    * [通过路径获取文档](#通过路径获取文档)
+    * [获取文档路径](#获取文档路径)
     * [通过 Markdown 创建文档](#通过-markdown-创建文档)
     * [重命名文档](#重命名文档)
     * [删除文档](#删除文档)
@@ -29,6 +31,9 @@
 * [资源文件](#资源文件)
     * [上传资源文件](#上传资源文件)
 * [块](#块)
+    * [块面包瓤](#块面包瓤)
+    * [块Doc详情](#块Doc详情)
+    * [块详情](#块详情)
     * [插入块](#插入块)
     * [插入前置子块](#插入前置子块)
     * [插入后置子块](#插入后置子块)
@@ -40,6 +45,7 @@
     * [获取块 kramdown 源码](#获取块-kramdown-源码)
     * [获取子块](#获取子块)
     * [转移块引用](#转移块引用)
+    * [块统计](#块统计)
 * [属性](#属性)
     * [设置块属性](#设置块属性)
     * [获取块属性](#获取块属性)
@@ -65,6 +71,7 @@
     * [获取项目配置](#获取项目配置)
     * [获取表情配置](#获取表情配置)
     * [获取更新日志](#获取更新日志)
+    * [设置UI](#设置UI)
 * [集市](#集市)
     * [获取插件列表](#获取插件列表)    
 * [存储](#存储)
@@ -325,6 +332,102 @@
 
 ## 文档
 
+### 通过路径获取文档
+
+* `/api/filetree/listDocsByPath`
+* 参数
+
+  ```json
+    {"notebook": "20240313110330-u9110rt", "path": "/"}
+  ```
+
+    * `notebook`：???
+* 返回值
+
+  ```json
+  {
+      "code": 0,
+      "msg": "",
+      "data": {
+          "box": "20240313110330-u9110rt",
+          "files": [
+              {
+                  "path": "/20240319110035-5r973ga.sy",
+                  "name": "php目录.sy",
+                  "icon": "",
+                  "name1": "",
+                  "alias": "",
+                  "memo": "",
+                  "bookmark": "",
+                  "id": "20240319110035-5r973ga",
+                  "count": 0,
+                  "size": 296,
+                  "hSize": "296 B",
+                  "mtime": 1710817512,
+                  "ctime": 1710817235,
+                  "hMtime": "5 天以前",
+                  "hCtime": "2024-03-19 11:00:35",
+                  "sort": 0,
+                  "subFileCount": 1,
+                  "hidden": false,
+                  "newFlashcardCount": 0,
+                  "dueFlashcardCount": 0,
+                  "flashcardCount": 0
+              },
+              {
+                  "path": "/20240318170710-wajzdch.sy",
+                  "name": "pic.sy",
+                  "icon": "",
+                  "name1": "",
+                  "alias": "",
+                  "memo": "",
+                  "bookmark": "",
+                  "id": "20240318170710-wajzdch",
+                  "count": 0,
+                  "size": 987,
+                  "hSize": "987 B",
+                  "mtime": 1710752902,
+                  "ctime": 1710752830,
+                  "hMtime": "6 天以前",
+                  "hCtime": "2024-03-18 17:07:10",
+                  "sort": 0,
+                  "subFileCount": 0,
+                  "hidden": false,
+                  "newFlashcardCount": 0,
+                  "dueFlashcardCount": 0,
+                  "flashcardCount": 0
+              },
+          ],
+          "path": "/"
+      }
+  }
+  ```
+
+### 获取文档路径
+
+* `/api/filetree/getFullHPathByID`
+* 参数
+
+  ```json
+  {
+    "id": "20240318170710-wajzdch",
+  }
+  ```
+
+    * `id`：???
+* 返回值
+
+  ```json
+  {
+    "code": 0,
+    "msg": "",
+    "data": "hello/pic"
+  }
+  ```
+
+    * `data`：创建好的文档 ID
+    * 如果使用同一个 `path` 重复调用该接口，不会覆盖已有文档
+
 ### 通过 Markdown 创建文档
 
 * `/api/filetree/createDocWithMd`
@@ -533,6 +636,88 @@
     * `succMap`：处理成功的文件，key 为上传时的文件名，value 为 assets/foo-id.png，用于将已有 Markdown 内容中的资源文件链接地址替换为上传后的地址
 
 ## 块
+
+### 块面包瓤
+
+* `/api/block/getBlockBreadcrumb`
+* 参数
+
+  ```json
+  {
+    "id": "20240313110333-lnoihyg",
+    "excludeTypes": []
+  }
+  ```
+
+    * `id`：???
+
+* 返回值
+
+  ```json
+  {
+      "code": 0,
+      "msg": "",
+      "data": [
+          {
+              "id": "20240313110333-akl0pz2",
+              "name": "hello/笔记",
+              "type": "NodeDocument",
+              "subType": "",
+              "children": null
+          },
+          {
+              "id": "20240313110333-lnoihyg",
+              "name": "siyuan test",
+              "type": "NodeParagraph",
+              "subType": "",
+              "children": null
+          }
+      ]
+  }
+  ```
+
+
+### 块Doc详情
+
+* `/api/block/getDocInfo`
+* 参数
+
+  ```json
+  {
+    "id": "20240313110333-akl0pz2",
+  }
+  ```
+
+    * `id`：rootID || boxID ?笔记id
+
+* 返回值
+
+  ```json
+  {
+      "code": 0,
+      "msg": "",
+      "data": {
+          "id": "20240313110333-akl0pz2",
+          "rootID": "20240313110333-akl0pz2",
+          "name": "笔记",
+          "refCount": 0,
+          "subFileCount": 0,
+          "refIDs": [],
+          "ial": {
+              "id": "20240313110333-akl0pz2",
+              "title": "笔记",
+              "updated": "20240313145522"
+          },
+          "icon": "",
+          "attrViews": [
+              {
+                  "id": "",
+                  "name": "Untitled"
+              }
+          ]
+      }
+  }
+  ```
 
 ### 块详情
 
@@ -951,6 +1136,34 @@
     "code": 0,
     "msg": "",
     "data": null
+  }
+  ```
+
+### 转移块引用
+
+* `/api/block/getTreeStat`
+* 参数
+
+  ```json
+  {
+    "id": "20240313110333-akl0pz2"
+  }
+  ```
+
+    * `id`：???
+* 返回值
+
+  ```json
+  {
+      "code": 0,
+      "msg": "",
+      "data": {
+          "runeCount": 20,
+          "wordCount": 6,
+          "linkCount": 0,
+          "imageCount": 0,
+          "refCount": 0
+      }
   }
   ```
 
@@ -1564,6 +1777,20 @@
     "data": {
       "html":"","show":false      
     }
+  }
+  ```
+
+### 设置UI
+
+* `api/system/setUILayout`
+* 不带参
+* 返回值
+
+  ```json
+  {
+    "code": 0,
+    "msg": "",
+    "data": null
   }
   ```
 
