@@ -63,6 +63,11 @@ export const openSnippets = () => {
     <div>
         <div class="fn__flex">
             <div class="fn__flex-1"></div>
+            <div class="b3-form__icon">
+                <svg class="b3-form__icon-icon"><use xlink:href="#iconSearch"></use></svg>
+                <input data-type="css" data-action="search" type="text" placeholder="${window.siyuan.languages.search}" class="b3-text-field b3-form__icon-input">
+            </div>
+            <div class="fn__space"></div>
             <span aria-label="${window.siyuan.languages.addAttr} CSS" id="addCodeSnippetCSS" class="b3-tooltips b3-tooltips__sw block__icon block__icon--show">
                 <svg><use xlink:href="#iconAdd"></use></svg>
             </span>
@@ -74,6 +79,11 @@ export const openSnippets = () => {
     <div class="fn__none">
         <div class="fn__flex">
             <div class="fn__flex-1"></div>
+             <div class="b3-form__icon">
+                <svg class="b3-form__icon-icon"><use xlink:href="#iconSearch"></use></svg>
+                <input data-type="js" data-action="search" type="text" placeholder="${window.siyuan.languages.search}" class="b3-text-field b3-form__icon-input">
+            </div>
+            <div class="fn__space"></div>
             <span aria-label="${window.siyuan.languages.addAttr} JS" id="addCodeSnippetJS" class="b3-tooltips b3-tooltips__sw block__icon block__icon--show">
                 <svg><use xlink:href="#iconAdd"></use></svg>
             </span>
@@ -151,6 +161,32 @@ export const openSnippets = () => {
                 target = target.parentElement;
             }
         });
+        dialog.element.querySelectorAll('[data-action="search"]').forEach((inputItem: HTMLInputElement) => {
+            inputItem.addEventListener("input", (event: KeyboardEvent) => {
+                if (event.isComposing) {
+                    return;
+                }
+                filterSnippet(dialog, inputItem);
+            });
+            inputItem.addEventListener("compositionend", () => {
+                filterSnippet(dialog, inputItem);
+            });
+        });
+    });
+};
+
+const filterSnippet = (dialog: Dialog, inputItem: HTMLInputElement) => {
+    dialog.element.querySelectorAll(`.fn__flex-1 > div > [data-type="${inputItem.dataset.type}"]`).forEach((snippetPanel: Element) => {
+        const snippetName = snippetPanel.querySelector("input").value.toLowerCase();
+        const snippetContent = snippetPanel.querySelector("textarea").value.toLowerCase();
+        const searchValue = inputItem.value.toLowerCase();
+        if (!searchValue ||
+            (snippetName && (searchValue.includes(snippetName) || snippetName.includes(searchValue))) ||
+            (snippetContent && (snippetContent.includes(searchValue) || searchValue.includes(snippetContent)))) {
+            snippetPanel.classList.remove("fn__none");
+        } else {
+            snippetPanel.classList.add("fn__none");
+        }
     });
 };
 

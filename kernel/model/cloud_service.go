@@ -105,12 +105,16 @@ func StartFreeTrial() (err error) {
 
 	requestResult := gulu.Ret.NewResult()
 	request := httpclient.NewCloudRequest30s()
-	_, err = request.
+	resp, err := request.
 		SetSuccessResult(requestResult).
 		SetCookies(&http.Cookie{Name: "symphony", Value: Conf.GetUser().UserToken}).
 		Post(util.GetCloudServer() + "/apis/siyuan/user/startFreeTrial")
 	if nil != err {
 		logging.LogErrorf("start free trial failed: %s", err)
+		return ErrFailedToConnectCloudServer
+	}
+	if http.StatusOK != resp.StatusCode {
+		logging.LogErrorf("start free trial failed: %d", resp.StatusCode)
 		return ErrFailedToConnectCloudServer
 	}
 	if 0 != requestResult.Code {
@@ -210,6 +214,7 @@ var (
 )
 
 func RefreshCheckJob() {
+	go util.GetRhyResult(true) // 发一次请求进行结果缓存
 	go refreshSubscriptionExpirationRemind()
 	go refreshUser()
 	go refreshAnnouncement()
@@ -246,7 +251,7 @@ func refreshSubscriptionExpirationRemind() {
 
 		if 0 < remains && expireDay > remains {
 			util.WaitForUILoaded()
-			time.Sleep(time.Second * 3)
+			time.Sleep(time.Second * 7)
 			util.PushErrMsg(fmt.Sprintf(Conf.Language(127), remains), 0)
 			return
 		}
@@ -529,12 +534,16 @@ var errInvalidUser = errors.New("invalid user")
 func getUser(token string) (*conf.User, error) {
 	result := map[string]interface{}{}
 	request := httpclient.NewCloudRequest30s()
-	_, err := request.
+	resp, err := request.
 		SetSuccessResult(&result).
 		SetBody(map[string]string{"token": token}).
 		Post(util.GetCloudServer() + "/apis/siyuan/user")
 	if nil != err {
 		logging.LogErrorf("get community user failed: %s", err)
+		return nil, errors.New(Conf.Language(18))
+	}
+	if http.StatusOK != resp.StatusCode {
+		logging.LogErrorf("get community user failed: %d", resp.StatusCode)
 		return nil, errors.New(Conf.Language(18))
 	}
 
@@ -562,13 +571,17 @@ func UseActivationcode(code string) (err error) {
 	code = gulu.Str.RemoveInvisible(code)
 	requestResult := gulu.Ret.NewResult()
 	request := httpclient.NewCloudRequest30s()
-	_, err = request.
+	resp, err := request.
 		SetSuccessResult(requestResult).
 		SetBody(map[string]string{"data": code}).
 		SetCookies(&http.Cookie{Name: "symphony", Value: Conf.GetUser().UserToken}).
 		Post(util.GetCloudServer() + "/apis/siyuan/useActivationcode")
 	if nil != err {
 		logging.LogErrorf("check activation code failed: %s", err)
+		return ErrFailedToConnectCloudServer
+	}
+	if http.StatusOK != resp.StatusCode {
+		logging.LogErrorf("check activation code failed: %d", resp.StatusCode)
 		return ErrFailedToConnectCloudServer
 	}
 	if 0 != requestResult.Code {
@@ -583,13 +596,18 @@ func CheckActivationcode(code string) (retCode int, msg string) {
 	retCode = 1
 	requestResult := gulu.Ret.NewResult()
 	request := httpclient.NewCloudRequest30s()
-	_, err := request.
+	resp, err := request.
 		SetSuccessResult(requestResult).
 		SetBody(map[string]string{"data": code}).
 		SetCookies(&http.Cookie{Name: "symphony", Value: Conf.GetUser().UserToken}).
 		Post(util.GetCloudServer() + "/apis/siyuan/checkActivationcode")
 	if nil != err {
 		logging.LogErrorf("check activation code failed: %s", err)
+		msg = ErrFailedToConnectCloudServer.Error()
+		return
+	}
+	if http.StatusOK != resp.StatusCode {
+		logging.LogErrorf("check activation code failed: %d", resp.StatusCode)
 		msg = ErrFailedToConnectCloudServer.Error()
 		return
 	}
@@ -607,7 +625,7 @@ func Login(userName, password, captcha string, cloudRegion int) (ret *gulu.Resul
 
 	result := map[string]interface{}{}
 	request := httpclient.NewCloudRequest30s()
-	_, err := request.
+	resp, err := request.
 		SetSuccessResult(&result).
 		SetBody(map[string]string{"userName": userName, "userPassword": password, "captcha": captcha}).
 		Post(util.GetCloudServer() + "/apis/siyuan/login")
@@ -618,6 +636,14 @@ func Login(userName, password, captcha string, cloudRegion int) (ret *gulu.Resul
 		ret.Msg = Conf.Language(18) + ": " + err.Error()
 		return
 	}
+	if http.StatusOK != resp.StatusCode {
+		logging.LogErrorf("login failed: %d", resp.StatusCode)
+		ret = gulu.Ret.NewResult()
+		ret.Code = -1
+		ret.Msg = Conf.Language(18)
+		return
+	}
+
 	ret = &gulu.Result{
 		Code: int(result["code"].(float64)),
 		Msg:  result["msg"].(string),

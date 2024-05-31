@@ -2,11 +2,13 @@ import {Divider} from "./Divider";
 import {Font, hasSameTextStyle, setFontStyle} from "./Font";
 import {ToolbarItem} from "./ToolbarItem";
 import {
-    fixTableRange, focusBlock,
+    fixTableRange,
+    focusBlock,
     focusByRange,
     focusByWbr,
     getEditorRange,
-    getSelectionPosition, selectAll,
+    getSelectionPosition,
+    selectAll,
     setFirstNodeRange,
     setLastNodeRange
 } from "../util/selection";
@@ -454,6 +456,11 @@ export class Toolbar {
                 }
                 inlineElement.setAttribute("data-type", [...new Set(rangeTypes)].join(" "));
                 inlineElement.textContent = Constants.ZWSP;
+                // 在 a 元素中 ctrl+m 需继承其链接，也许不需要？没有用户反馈之前先保持现状
+                // if (type !== "a" && rangeTypes.includes("a") && nextElement.dataset.type.split(" ").includes("a") &&
+                //     nextElement.isSameNode(previousElement)) {
+                //     inlineElement.setAttribute("data-href", nextElement.getAttribute("data-href"));
+                // }
                 setFontStyle(inlineElement, textObj);
                 newNodes.push(inlineElement);
             } else {
@@ -622,10 +629,10 @@ export class Toolbar {
                 i--;
             } else {
                 this.range.insertNode(currentNewNode);
-                // https://github.com/siyuan-note/siyuan/issues/6155
-                if (currentNewNode.nodeType !== 3 && ["code", "tag", "kbd"].includes(type)) {
-                    const previousSibling = hasPreviousSibling(currentNewNode);
-                    if (!previousSibling || previousSibling.textContent.endsWith("\n")) {
+                if (currentNewNode.nodeType === 1 && ["code", "tag", "kbd"].includes(type)) {
+                    // 添加为 span https://github.com/siyuan-note/siyuan/issues/6155
+                    const currentPreviousSibling = hasPreviousSibling(currentNewNode);
+                    if (!currentPreviousSibling || currentPreviousSibling.textContent.endsWith("\n")) {
                         currentNewNode.before(document.createTextNode(Constants.ZWSP));
                     }
                     if (!currentNewNode.textContent.startsWith(Constants.ZWSP)) {
@@ -639,6 +646,47 @@ export class Toolbar {
                         )
                     ) {
                         currentNewNode.after(document.createTextNode(Constants.ZWSP));
+                    }
+                } else if (currentNewNode.nodeType === 3 && ["code", "tag", "kbd", "clear"].includes(type)) {
+                    const currentPreviousSibling = hasPreviousSibling(currentNewNode) as HTMLElement;
+                    let previousIsCTK = false;
+                    if (currentPreviousSibling) {
+                        if (currentPreviousSibling.nodeType === 1) {
+                            const currentPreviousSiblingTypes = currentPreviousSibling.dataset.type.split(" ");
+                            if (currentPreviousSiblingTypes.includes("code") || currentPreviousSiblingTypes.includes("tag") || currentPreviousSiblingTypes.includes("kbd")) {
+                                previousIsCTK = true;
+                            }
+                        } else if (currentPreviousSibling.textContent.endsWith(Constants.ZWSP)) {
+                            currentPreviousSibling.textContent = currentPreviousSibling.textContent.substring(0, currentPreviousSibling.textContent.length - 1);
+                        }
+                    }
+                    const currentNextSibling = hasNextSibling(currentNewNode) as HTMLElement;
+                    let nextIsCTK = false;
+                    if (currentNextSibling) {
+                        if (currentNextSibling.nodeType === 1) {
+                            const currentNextSiblingTypes = currentNextSibling.dataset.type.split(" ");
+                            if (currentNextSiblingTypes.includes("code") || currentNextSiblingTypes.includes("tag") || currentNextSiblingTypes.includes("kbd")) {
+                                nextIsCTK = true;
+                            }
+                        } else if (currentNextSibling.textContent.startsWith(Constants.ZWSP)) {
+                            currentNextSibling.textContent = currentNextSibling.textContent.substring(1);
+                        }
+                    }
+                    if (currentNewNode) {
+                        if (previousIsCTK) {
+                            if (!currentNewNode.textContent.startsWith(Constants.ZWSP)) {
+                                currentNewNode.textContent = Constants.ZWSP + currentNewNode.textContent;
+                            }
+                        } else if (currentNewNode.textContent.startsWith(Constants.ZWSP)) {
+                            currentNewNode.textContent = currentNewNode.textContent.substring(1);
+                        }
+                        if (nextIsCTK) {
+                            if (!currentNextSibling.textContent.startsWith(Constants.ZWSP)) {
+                                currentNextSibling.textContent = Constants.ZWSP + currentNextSibling.textContent;
+                            }
+                        } else if (currentNewNode.textContent.endsWith(Constants.ZWSP)) {
+                            currentNewNode.textContent = currentNewNode.textContent.substring(0, currentNewNode.textContent.length - 1);
+                        }
                     }
                 }
                 this.range.collapse(false);
@@ -1134,6 +1182,35 @@ export class Toolbar {
         });
     }
 
+    private updateLanguage(languageElement: HTMLElement, protyle: IProtyle, id: string, nodeElement: HTMLElement, oldHtml: string, selectedLang: string) {
+        languageElement.textContent = selectedLang === window.siyuan.languages.clear ? "" : selectedLang;
+        window.siyuan.storage[Constants.LOCAL_CODELANG] = languageElement.textContent;
+        setStorageVal(Constants.LOCAL_CODELANG, window.siyuan.storage[Constants.LOCAL_CODELANG]);
+        const editElement = getContenteditableElement(nodeElement);
+        if (Constants.SIYUAN_RENDER_CODE_LANGUAGES.includes(languageElement.textContent)) {
+            nodeElement.dataset.content = editElement.textContent.trim();
+            nodeElement.dataset.subtype = languageElement.textContent;
+            nodeElement.className = "render-node";
+            nodeElement.innerHTML = `<div spin="1"></div><div class="protyle-attr" contenteditable="false">${Constants.ZWSP}</div>`;
+            processRender(nodeElement);
+        } else {
+            const lineNumber = nodeElement.getAttribute("linenumber");
+            if (lineNumber === "true" || (lineNumber !== "false" && window.siyuan.config.editor.codeSyntaxHighlightLineNum)) {
+                editElement.classList.add("protyle-linenumber");
+            } else {
+                editElement.classList.remove("protyle-linenumber");
+            }
+            (editElement as HTMLElement).textContent = editElement.textContent;
+            editElement.removeAttribute("data-render");
+            highlightRender(nodeElement);
+        }
+        nodeElement.setAttribute("updated", dayjs().format("YYYYMMDDHHmmss"));
+        updateTransaction(protyle, id, nodeElement.outerHTML, oldHtml);
+        this.subElement.classList.add("fn__none");
+        focusByRange(this.range);
+        return nodeElement.outerHTML;
+    }
+
     public showCodeLanguage(protyle: IProtyle, languageElement: HTMLElement) {
         const nodeElement = hasClosestBlock(languageElement);
         if (!nodeElement) {
@@ -1167,27 +1244,12 @@ export class Toolbar {
             }
             upDownHint(listElement, event);
             if (event.key === "Enter") {
-                const activeText = this.subElement.querySelector(".b3-list-item--focus").textContent;
-                languageElement.textContent = activeText === window.siyuan.languages.clear ? "" : activeText;
-                window.siyuan.storage[Constants.LOCAL_CODELANG] = languageElement.textContent;
-                setStorageVal(Constants.LOCAL_CODELANG, window.siyuan.storage[Constants.LOCAL_CODELANG]);
-                const editElement = getContenteditableElement(nodeElement);
-                const lineNumber = nodeElement.getAttribute("linenumber");
-                if (lineNumber === "true" || (lineNumber !== "false" && window.siyuan.config.editor.codeSyntaxHighlightLineNum)) {
-                    editElement.classList.add("protyle-linenumber");
-                } else {
-                    editElement.classList.remove("protyle-linenumber");
-                }
-                (editElement as HTMLElement).textContent = editElement.textContent;
-                editElement.removeAttribute("data-render");
-                highlightRender(nodeElement);
-                nodeElement.setAttribute("updated", dayjs().format("YYYYMMDDHHmmss"));
-                updateTransaction(protyle, id, nodeElement.outerHTML, oldHtml);
-                oldHtml = nodeElement.outerHTML;
+                oldHtml = this.updateLanguage(languageElement, protyle, id, nodeElement, oldHtml, this.subElement.querySelector(".b3-list-item--focus").textContent);
                 event.preventDefault();
                 event.stopPropagation();
+                return;
             }
-            if (event.key === "Escape" || event.key === "Enter") {
+            if (event.key === "Escape") {
                 this.subElement.classList.add("fn__none");
                 focusByRange(this.range);
             }
@@ -1238,27 +1300,7 @@ export class Toolbar {
             if (!listElement) {
                 return;
             }
-            languageElement.textContent = listElement.textContent === window.siyuan.languages.clear ? "" : listElement.textContent;
-            window.siyuan.storage[Constants.LOCAL_CODELANG] = languageElement.textContent;
-            setStorageVal(Constants.LOCAL_CODELANG, window.siyuan.storage[Constants.LOCAL_CODELANG]);
-            const nodeElement = hasClosestBlock(languageElement);
-            if (nodeElement) {
-                const editElement = getContenteditableElement(nodeElement);
-                const lineNumber = nodeElement.getAttribute("linenumber");
-                if (lineNumber === "true" || (lineNumber !== "false" && window.siyuan.config.editor.codeSyntaxHighlightLineNum)) {
-                    editElement.classList.add("protyle-linenumber");
-                } else {
-                    editElement.classList.remove("protyle-linenumber");
-                }
-                (editElement as HTMLElement).textContent = editElement.textContent;
-                editElement.removeAttribute("data-render");
-                highlightRender(nodeElement);
-                nodeElement.setAttribute("updated", dayjs().format("YYYYMMDDHHmmss"));
-                updateTransaction(protyle, id, nodeElement.outerHTML, oldHtml);
-                oldHtml = nodeElement.outerHTML;
-                this.subElement.classList.add("fn__none");
-                focusByRange(this.range);
-            }
+            oldHtml = this.updateLanguage(languageElement, protyle, id, nodeElement, oldHtml, listElement.textContent);
         });
         this.subElement.style.zIndex = (++window.siyuan.zIndex).toString();
         this.subElement.classList.remove("fn__none");
@@ -1436,7 +1478,7 @@ export class Toolbar {
     <svg><use xlink:href="#iconTrashcan"></use></svg>
 </span></div>`;
             });
-            this.subElement.querySelector(".b3-list--background").innerHTML = html ||`<li class="b3-list--empty">${window.siyuan.languages.emptyContent}</li>`;
+            this.subElement.querySelector(".b3-list--background").innerHTML = html || `<li class="b3-list--empty">${window.siyuan.languages.emptyContent}</li>`;
             /// #if !MOBILE
             const rangePosition = getSelectionPosition(nodeElement, range);
             setPosition(this.subElement, rangePosition.left, rangePosition.top + 18, Constants.SIZE_TOOLBAR_HEIGHT);
@@ -1468,7 +1510,7 @@ export class Toolbar {
             }
             upDownHint(listElement, event);
             if (event.key === "Enter") {
-                hintRenderWidget(this.subElement.querySelector(".b3-list-item--focus").textContent, protyle);
+                hintRenderWidget(this.subElement.querySelector(".b3-list-item--focus").getAttribute("data-content"), protyle);
                 this.subElement.classList.add("fn__none");
                 event.preventDefault();
             } else if (event.key === "Escape") {
@@ -1482,8 +1524,11 @@ export class Toolbar {
                 k: inputElement.value,
             }, (response) => {
                 let searchHTML = "";
-                response.data.blocks.forEach((item: { path: string, content: string }, index: number) => {
-                    searchHTML += `<div data-value="${item.path}" class="b3-list-item${index === 0 ? " b3-list-item--focus" : ""}">${item.content}</div>`;
+                response.data.blocks.forEach((item: { path: string, content: string, name: string }, index: number) => {
+                    searchHTML += `<div data-value="${item.path}" data-content="${item.content}" class="b3-list-item${index === 0 ? " b3-list-item--focus" : ""}">
+    ${item.name}
+    <span class="b3-list-item__meta">${item.content}</span>
+</div>`;
                 });
                 listElement.innerHTML = searchHTML;
             });
@@ -1494,7 +1539,7 @@ export class Toolbar {
             if (!listElement) {
                 return;
             }
-            hintRenderWidget(listElement.textContent, protyle);
+            hintRenderWidget(listElement.dataset.content, protyle);
         });
         this.subElement.style.zIndex = (++window.siyuan.zIndex).toString();
         this.subElement.classList.remove("fn__none");
@@ -1505,8 +1550,11 @@ export class Toolbar {
             k: "",
         }, (response) => {
             let html = "";
-            response.data.blocks.forEach((item: { content: string }, index: number) => {
-                html += `<div class="b3-list-item${index === 0 ? " b3-list-item--focus" : ""}">${item.content}</div>`;
+            response.data.blocks.forEach((item: { content: string, name: string }, index: number) => {
+                html += `<div class="b3-list-item${index === 0 ? " b3-list-item--focus" : ""}" data-content="${item.content}">
+${item.name}
+<span class="b3-list-item__meta">${item.content}</span>
+</div>`;
             });
             this.subElement.querySelector(".b3-list--background").innerHTML = html;
             /// #if !MOBILE

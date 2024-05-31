@@ -28,11 +28,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/88250/go-humanize"
 	"github.com/88250/gulu"
 	"github.com/88250/lute"
 	"github.com/88250/lute/ast"
 	"github.com/Xuanwo/go-locale"
-	"github.com/dustin/go-humanize"
 	"github.com/getsentry/sentry-go"
 	"github.com/sashabaranov/go-openai"
 	"github.com/siyuan-note/eventbus"
@@ -80,6 +80,7 @@ type AppConf struct {
 	ShowChangelog  bool             `json:"showChangelog"`  // 是否显示版本更新日志
 	CloudRegion    int              `json:"cloudRegion"`    // 云端区域，0：中国大陆，1：北美
 	Snippet        *conf.Snpt       `json:"snippet"`        // 代码片段
+	State          int              `json:"state"`          // 运行状态，0：已经正常退出，1：运行中
 
 	m *sync.Mutex
 }
@@ -111,29 +112,35 @@ func (conf *AppConf) SetUser(user *conf.User) {
 func InitConf() {
 	initLang()
 
-	windowStateConf := filepath.Join(util.ConfDir, "windowState.json")
-	if !gulu.File.IsExist(windowStateConf) {
-		if err := gulu.File.WriteFileSafer(windowStateConf, []byte("{}"), 0644); nil != err {
-			logging.LogErrorf("create [windowState.json] failed: %s", err)
-		}
-	}
-
 	Conf = &AppConf{LogLevel: "debug", m: &sync.Mutex{}}
 	confPath := filepath.Join(util.ConfDir, "conf.json")
 	if gulu.File.IsExist(confPath) {
-		data, err := os.ReadFile(confPath)
-		if nil != err {
+		if data, err := os.ReadFile(confPath); nil != err {
 			logging.LogErrorf("load conf [%s] failed: %s", confPath, err)
-		}
-		err = gulu.JSON.UnmarshalJSON(data, Conf)
-		if err != nil {
-			logging.LogErrorf("parse conf [%s] failed: %s", confPath, err)
+		} else {
+			if err = gulu.JSON.UnmarshalJSON(data, Conf); err != nil {
+				logging.LogErrorf("parse conf [%s] failed: %s", confPath, err)
+			} else {
+				logging.LogInfof("loaded conf [%s]", confPath)
+			}
 		}
 	}
 
 	if "" != util.Lang {
-		Conf.Lang = util.Lang
-		logging.LogInfof("initialized the specified language [%s]", util.Lang)
+		initialized := false
+		if util.ContainerAndroid == util.Container || util.ContainerIOS == util.Container {
+			// 移动端以上次设置的外观语言为准
+			if "" != Conf.Lang && util.Lang != Conf.Lang {
+				util.Lang = Conf.Lang
+				logging.LogInfof("use the last specified language [%s]", util.Lang)
+				initialized = true
+			}
+		}
+
+		if !initialized {
+			Conf.Lang = util.Lang
+			logging.LogInfof("initialized the specified language [%s]", util.Lang)
+		}
 	} else {
 		if "" == Conf.Lang {
 			// 未指定外观语言时使用系统语言
@@ -204,12 +211,6 @@ func InitConf() {
 		Conf.FileTree.MaxOpenTabCount = 32
 	}
 	Conf.FileTree.DocCreateSavePath = strings.TrimSpace(Conf.FileTree.DocCreateSavePath)
-	if "../" == Conf.FileTree.DocCreateSavePath {
-		Conf.FileTree.DocCreateSavePath = "../Untitled"
-	}
-	if "/" == Conf.FileTree.DocCreateSavePath {
-		Conf.FileTree.DocCreateSavePath = "/Untitled"
-	}
 	util.UseSingleLineSave = Conf.FileTree.UseSingleLineSave
 
 	util.CurrentCloudRegion = Conf.CloudRegion
@@ -242,18 +243,22 @@ func InitConf() {
 	if 1 > Conf.Editor.HistoryRetentionDays {
 		Conf.Editor.HistoryRetentionDays = 30
 	}
-	if 48 > Conf.Editor.DynamicLoadBlocks {
-		Conf.Editor.DynamicLoadBlocks = 48
+	if conf.MinDynamicLoadBlocks > Conf.Editor.DynamicLoadBlocks {
+		Conf.Editor.DynamicLoadBlocks = conf.MinDynamicLoadBlocks
 	}
-	if 1024 < Conf.Editor.DynamicLoadBlocks {
-		Conf.Editor.DynamicLoadBlocks = 1024
+	if conf.MaxDynamicLoadBlocks < Conf.Editor.DynamicLoadBlocks {
+		Conf.Editor.DynamicLoadBlocks = conf.MaxDynamicLoadBlocks
 	}
 	if 0 > Conf.Editor.BacklinkExpandCount {
 		Conf.Editor.BacklinkExpandCount = 0
 	}
-	if 0 > Conf.Editor.BackmentionExpandCount {
-		Conf.Editor.BackmentionExpandCount = 0
+	if -1 > Conf.Editor.BackmentionExpandCount {
+		Conf.Editor.BackmentionExpandCount = -1
 	}
+	if nil == Conf.Editor.Markdown {
+		Conf.Editor.Markdown = &util.Markdown{}
+	}
+	util.MarkdownSettings = Conf.Editor.Markdown
 
 	if nil == Conf.Export {
 		Conf.Export = conf.NewExport()
@@ -272,7 +277,9 @@ func InitConf() {
 
 	if nil == Conf.System {
 		Conf.System = conf.NewSystem()
-		Conf.OpenHelp = true
+		if util.ContainerIOS != util.Container {
+			Conf.OpenHelp = true
+		}
 	} else {
 		if 0 < semver.Compare("v"+util.Ver, "v"+Conf.System.KernelVersion) {
 			logging.LogInfof("upgraded from version [%s] to [%s]", Conf.System.KernelVersion, util.Ver)
@@ -408,8 +415,20 @@ func InitConf() {
 	if "" == Conf.AI.OpenAI.APIUserAgent {
 		Conf.AI.OpenAI.APIUserAgent = util.UserAgent
 	}
+	if strings.HasPrefix(Conf.AI.OpenAI.APIUserAgent, "SiYuan/") {
+		Conf.AI.OpenAI.APIUserAgent = util.UserAgent
+	}
 	if "" == Conf.AI.OpenAI.APIProvider {
 		Conf.AI.OpenAI.APIProvider = "OpenAI"
+	}
+	if 0 > Conf.AI.OpenAI.APIMaxTokens {
+		Conf.AI.OpenAI.APIMaxTokens = 0
+	}
+	if 0 >= Conf.AI.OpenAI.APITemperature || 2 < Conf.AI.OpenAI.APITemperature {
+		Conf.AI.OpenAI.APITemperature = 1.0
+	}
+	if 1 > Conf.AI.OpenAI.APIMaxContexts || 64 < Conf.AI.OpenAI.APIMaxContexts {
+		Conf.AI.OpenAI.APIMaxContexts = 7
 	}
 
 	if "" != Conf.AI.OpenAI.APIKey {
@@ -419,13 +438,17 @@ func InitConf() {
 			"    timeout=%ds\n"+
 			"    proxy=%s\n"+
 			"    model=%s\n"+
-			"    maxTokens=%d",
+			"    maxTokens=%d\n"+
+			"    temperature=%.1f\n"+
+			"    maxContexts=%d",
 			Conf.AI.OpenAI.APIUserAgent,
 			Conf.AI.OpenAI.APIBaseURL,
 			Conf.AI.OpenAI.APITimeout,
 			Conf.AI.OpenAI.APIProxy,
 			Conf.AI.OpenAI.APIModel,
-			Conf.AI.OpenAI.APIMaxTokens)
+			Conf.AI.OpenAI.APIMaxTokens,
+			Conf.AI.OpenAI.APITemperature,
+			Conf.AI.OpenAI.APIMaxContexts)
 	}
 
 	Conf.ReadOnly = util.ReadOnly
@@ -435,6 +458,21 @@ func InitConf() {
 	}
 
 	Conf.LocalIPs = util.GetLocalIPs()
+
+	if 1 == Conf.State {
+		// 上次未正常退出
+		go func() {
+			util.WaitForUILoaded()
+			time.Sleep(2 * time.Second)
+			if util.ContainerIOS == util.Container || util.ContainerAndroid == util.Container {
+				util.PushMsg(Conf.language(245), 15000)
+			} else {
+				util.PushMsg(Conf.language(244), 15000)
+			}
+		}()
+	}
+
+	Conf.State = 1 // 运行中
 
 	Conf.Save()
 	logging.SetLogLevel(Conf.LogLevel)
@@ -527,6 +565,8 @@ var exitLock = sync.Mutex{}
 //
 // force：是否不执行同步过程而直接退出
 //
+// setCurrentWorkspace：是否将当前工作空间放到工作空间列表的最后一个
+//
 // execInstallPkg：是否执行新版本安装包
 //
 //	0：默认按照设置项 System.DownloadInstallPkg 检查并推送提示
@@ -540,11 +580,11 @@ var exitLock = sync.Mutex{}
 //	2：提示新安装包
 //
 // 当 force 为 true（强制退出）并且 execInstallPkg 为 0（默认检查更新）并且同步失败并且新版本安装版已经准备就绪时，执行新版本安装 https://github.com/siyuan-note/siyuan/issues/10288
-func Close(force bool, execInstallPkg int) (exitCode int) {
+func Close(force, setCurrentWorkspace bool, execInstallPkg int) (exitCode int) {
 	exitLock.Lock()
 	defer exitLock.Unlock()
 
-	logging.LogInfof("exiting kernel [force=%v, execInstallPkg=%d]", force, execInstallPkg)
+	logging.LogInfof("exiting kernel [force=%v, setCurrentWorkspace=%v, execInstallPkg=%d]", force, setCurrentWorkspace, execInstallPkg)
 	util.PushMsg(Conf.Language(95), 10000*60)
 	WaitForWritingFiles()
 
@@ -583,10 +623,24 @@ func Close(force bool, execInstallPkg int) (exitCode int) {
 	Conf.Close()
 	sql.CloseDatabase()
 	treenode.SaveBlockTree(false)
-	SaveAssetsTexts()
+	util.SaveAssetsTexts()
 	clearWorkspaceTemp()
 	clearCorruptedNotebooks()
 	clearPortJSON()
+
+	if setCurrentWorkspace {
+		// 将当前工作空间放到工作空间列表的最后一个
+		// Open the last workspace by default https://github.com/siyuan-note/siyuan/issues/10570
+		workspacePaths, err := util.ReadWorkspacePaths()
+		if nil != err {
+			logging.LogErrorf("read workspace paths failed: %s", err)
+		} else {
+			workspacePaths = gulu.Str.RemoveElem(workspacePaths, util.WorkspaceDir)
+			workspacePaths = append(workspacePaths, util.WorkspaceDir)
+			util.WriteWorkspacePaths(workspacePaths)
+		}
+	}
+
 	util.UnlockWorkspace()
 
 	time.Sleep(500 * time.Millisecond)
@@ -658,6 +712,7 @@ func (conf *AppConf) save0(data []byte) {
 }
 
 func (conf *AppConf) Close() {
+	conf.State = 0 // 已经正常退出
 	conf.Save()
 }
 
@@ -790,7 +845,7 @@ func InitBoxes() {
 
 	var dbSize string
 	if dbFile, err := os.Stat(util.DBPath); nil == err {
-		dbSize = humanize.Bytes(uint64(dbFile.Size()))
+		dbSize = humanize.BytesCustomCeil(uint64(dbFile.Size()), 2)
 	}
 	logging.LogInfof("database size [%s], tree/block count [%d/%d]", dbSize, treenode.CountTrees(), treenode.CountBlocks())
 }
@@ -954,6 +1009,7 @@ func clearWorkspaceTemp() {
 	os.RemoveAll(filepath.Join(util.DataDir, ".siyuan", "history"))
 	os.RemoveAll(filepath.Join(util.WorkspaceDir, "backup"))
 	os.RemoveAll(filepath.Join(util.WorkspaceDir, "sync"))
+	os.RemoveAll(filepath.Join(util.DataDir, "%")) // v3.0.6 生成的错误历史文件夹
 
 	logging.LogInfof("cleared workspace temp")
 }

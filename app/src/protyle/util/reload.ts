@@ -5,7 +5,7 @@ import {renderBacklink} from "../wysiwyg/renderBacklink";
 import {hasClosestByClassName} from "./hasClosest";
 import {preventScroll} from "../scroll/preventScroll";
 
-export const reloadProtyle = (protyle: IProtyle, focus: boolean) => {
+export const reloadProtyle = (protyle: IProtyle, focus: boolean, updateReadonly?: boolean) => {
     if (!protyle.preview.element.classList.contains("fn__none")) {
         protyle.preview.render(protyle);
         return;
@@ -26,12 +26,17 @@ export const reloadProtyle = (protyle: IProtyle, focus: boolean) => {
     }
     protyle.lute.SetProtyleMarkNetImg(window.siyuan.config.editor.displayNetImgMark);
     protyle.lute.SetSpellcheck(window.siyuan.config.editor.spellcheck);
+    protyle.lute.SetSup(window.siyuan.config.editor.markdown.inlineSup);
+    protyle.lute.SetSub(window.siyuan.config.editor.markdown.inlineSub);
+    protyle.lute.SetTag(window.siyuan.config.editor.markdown.inlineTag);
+    protyle.lute.SetInlineMath(window.siyuan.config.editor.markdown.inlineMath);
+    protyle.lute.SetGFMStrikethrough1(false);
     addLoading(protyle);
     if (protyle.options.backlinkData) {
         const isMention = protyle.element.getAttribute("data-ismention") === "true";
         const tabElement = hasClosestByClassName(protyle.element, "sy__backlink");
         if (tabElement) {
-            const inputsElement = tabElement.querySelectorAll(".b3-form__icon-input") as NodeListOf<HTMLInputElement>;
+            const inputsElement = tabElement.querySelectorAll(".b3-text-field") as NodeListOf<HTMLInputElement>;
             fetchPost(isMention ? "/api/ref/getBackmentionDoc" : "/api/ref/getBacklinkDoc", {
                 defID: protyle.element.getAttribute("data-defid"),
                 refTreeID: protyle.block.rootID,
@@ -46,7 +51,8 @@ export const reloadProtyle = (protyle: IProtyle, focus: boolean) => {
         getDocByScroll({
             protyle,
             focus,
-            scrollAttr: saveScroll(protyle, true)
+            scrollAttr: saveScroll(protyle, true),
+            updateReadonly
         });
     }
 };

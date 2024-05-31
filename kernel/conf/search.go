@@ -38,6 +38,10 @@ type Search struct {
 	HTMLBlock     bool `json:"htmlBlock"`
 	EmbedBlock    bool `json:"embedBlock"`
 	DatabaseBlock bool `json:"databaseBlock"`
+	AudioBlock    bool `json:"audioBlock"`
+	VideoBlock    bool `json:"videoBlock"`
+	IFrameBlock   bool `json:"iframeBlock"`
+	WidgetBlock   bool `json:"widgetBlock"`
 
 	Limit         int  `json:"limit"`
 	CaseSensitive bool `json:"caseSensitive"`
@@ -65,17 +69,21 @@ func NewSearch() *Search {
 	return &Search{
 		Document:      true,
 		Heading:       true,
-		List:          true,
-		ListItem:      true,
+		List:          false,
+		ListItem:      false,
 		CodeBlock:     true,
 		MathBlock:     true,
 		Table:         true,
-		Blockquote:    true,
-		SuperBlock:    true,
+		Blockquote:    false,
+		SuperBlock:    false,
 		Paragraph:     true,
 		HTMLBlock:     true,
 		EmbedBlock:    false,
 		DatabaseBlock: true,
+		AudioBlock:    false,
+		VideoBlock:    false,
+		IFrameBlock:   false,
+		WidgetBlock:   false,
 
 		Limit:         64,
 		CaseSensitive: false,
@@ -195,11 +203,30 @@ func (s *Search) TypeFilter() string {
 		buf.WriteByte('\'')
 		buf.WriteString(",")
 	}
-
-	// 无法搜索到 iframe 块、视频块和音频块 https://github.com/siyuan-note/siyuan/issues/3604
-	buf.WriteString("'iframe','video','audio',")
-	// 挂件块支持内置属性搜索 https://github.com/siyuan-note/siyuan/issues/4497
-	buf.WriteString("'widget',")
+	if s.AudioBlock {
+		buf.WriteByte('\'')
+		buf.WriteString(treenode.TypeAbbr(ast.NodeAudio.String()))
+		buf.WriteByte('\'')
+		buf.WriteString(",")
+	}
+	if s.VideoBlock {
+		buf.WriteByte('\'')
+		buf.WriteString(treenode.TypeAbbr(ast.NodeVideo.String()))
+		buf.WriteByte('\'')
+		buf.WriteString(",")
+	}
+	if s.IFrameBlock {
+		buf.WriteByte('\'')
+		buf.WriteString(treenode.TypeAbbr(ast.NodeIFrame.String()))
+		buf.WriteByte('\'')
+		buf.WriteString(",")
+	}
+	if s.WidgetBlock {
+		buf.WriteByte('\'')
+		buf.WriteString(treenode.TypeAbbr(ast.NodeWidget.String()))
+		buf.WriteByte('\'')
+		buf.WriteString(",")
+	}
 
 	ret := buf.String()
 	if "" == ret {

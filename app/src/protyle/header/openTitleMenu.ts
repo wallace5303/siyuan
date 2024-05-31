@@ -1,12 +1,6 @@
 import {fetchPost, fetchSyncPost} from "../../util/fetch";
 import {MenuItem} from "../../menus/Menu";
-import {
-    copySubMenu,
-    exportMd,
-    movePathToMenu,
-    openFileAttr,
-    openFileWechatNotify,
-} from "../../menus/commonMenuItem";
+import {copySubMenu, exportMd, movePathToMenu, openFileAttr, openFileWechatNotify,} from "../../menus/commonMenuItem";
 import {deleteFile} from "../../editor/deleteFile";
 import {updateHotkeyTip} from "../util/compatibility";
 /// #if !MOBILE
@@ -27,8 +21,8 @@ import {openDocHistory} from "../../history/doc";
 import {openNewWindowById} from "../../window/openNewWindow";
 import {genImportMenu} from "../../menus/navigation";
 import {transferBlockRef} from "../../menus/block";
-import {openSearchAV} from "../render/av/relation";
-import {transaction} from "../wysiwyg/transaction";
+import {addEditorToDatabase} from "../render/av/addToDatabase";
+import {openFileById} from "../../editor/util";
 
 export const openTitleMenu = (protyle: IProtyle, position: IPosition) => {
     hideTooltip();
@@ -50,30 +44,13 @@ export const openTitleMenu = (protyle: IProtyle, position: IPosition) => {
         }).element);
         if (!protyle.disabled) {
             window.siyuan.menus.menu.append(movePathToMenu([protyle.path]));
+            const range = getSelection().rangeCount > 0 ? getSelection().getRangeAt(0) : undefined;
             window.siyuan.menus.menu.append(new MenuItem({
                 label: window.siyuan.languages.addToDatabase,
                 accelerator: window.siyuan.config.keymap.general.addToDatabase.custom,
                 icon: "iconDatabase",
                 click: () => {
-                    openSearchAV("", protyle.breadcrumb.element, (listItemElement) => {
-                        const sourceIds: string[] = [response.data.rootID];
-                        const avID = listItemElement.dataset.avId;
-                        transaction(protyle, [{
-                            action: "insertAttrViewBlock",
-                            avID,
-                            srcIDs: sourceIds,
-                            isDetached: false,
-                            blockID: listItemElement.dataset.nodeId
-                        }, {
-                            action: "doUpdateUpdated",
-                            id: listItemElement.dataset.nodeId,
-                            data: dayjs().format("YYYYMMDDHHmmss"),
-                        }], [{
-                            action: "removeAttrViewBlock",
-                            srcIDs: sourceIds,
-                            avID,
-                        }]);
-                    });
+                    addEditorToDatabase(protyle, range, "title");
                 }
             }).element);
             window.siyuan.menus.menu.append(new MenuItem({
@@ -104,7 +81,7 @@ export const openTitleMenu = (protyle: IProtyle, position: IPosition) => {
                     blockId: protyle.block.id,
                     rootId: protyle.block.rootID,
                     useBlockId: protyle.block.showAll,
-                    title: protyle.title ? (protyle.title.editElement.textContent || "Untitled") : null
+                    title: protyle.title ? (protyle.title.editElement.textContent || window.siyuan.languages.untitled) : null
                 });
             }
         }).element);
@@ -118,7 +95,7 @@ export const openTitleMenu = (protyle: IProtyle, position: IPosition) => {
                     blockId: protyle.block.id,
                     rootId: protyle.block.rootID,
                     useBlockId: protyle.block.showAll,
-                    title: protyle.title ? (protyle.title.editElement.textContent || "Untitled") : null
+                    title: protyle.title ? (protyle.title.editElement.textContent || window.siyuan.languages.untitled) : null
                 });
             }
         }).element);
@@ -127,7 +104,7 @@ export const openTitleMenu = (protyle: IProtyle, position: IPosition) => {
         window.siyuan.menus.menu.append(new MenuItem({
             label: window.siyuan.languages.attr,
             icon: "iconAttr",
-            accelerator: window.siyuan.config.keymap.editor.general.attr.custom + "/" + updateHotkeyTip("⇧Click"),
+            accelerator: window.siyuan.config.keymap.editor.general.attr.custom + "/" + updateHotkeyTip("⇧" + window.siyuan.languages.click),
             click() {
                 openFileAttr(response.data.ial, "bookmark", protyle);
             }
@@ -199,20 +176,11 @@ export const openTitleMenu = (protyle: IProtyle, position: IPosition) => {
                     notebook: protyle.notebookId,
                     path: searchPath + ".sy"
                 });
-                const localData = window.siyuan.storage[Constants.LOCAL_SEARCHDATA];
                 popSearch(protyle.app, {
-                    removed: localData.removed,
-                    sort: localData.sort,
-                    group: localData.group,
                     hasReplace: false,
-                    method: localData.method,
                     hPath: pathPosix().join(getNotebookName(protyle.notebookId), pathResponse.data),
                     idPath: [pathPosix().join(protyle.notebookId, searchPath)],
-                    k: localData.k,
-                    r: localData.r,
                     page: 1,
-                    types: Object.assign({}, localData.types),
-                    replaceTypes: Object.assign({}, localData.replaceTypes)
                 });
                 /// #else
                 openSearch({
@@ -228,6 +196,21 @@ export const openTitleMenu = (protyle: IProtyle, position: IPosition) => {
             transferBlockRef(protyle.block.rootID);
         }
         window.siyuan.menus.menu.append(new MenuItem({type: "separator"}).element);
+        /// #if !MOBILE
+        if (!protyle.model) {
+            window.siyuan.menus.menu.append(new MenuItem({
+                label: window.siyuan.languages.openInNewTab,
+                icon: "iconLayoutRight",
+                click() {
+                    openFileById({
+                        app: protyle.app,
+                        id: protyle.block.id,
+                        action: protyle.block.rootID !== protyle.block.id ? [Constants.CB_GET_ALL] : [Constants.CB_GET_CONTEXT],
+                    });
+                }
+            }).element);
+        }
+        /// #endif
         /// #if !BROWSER
         window.siyuan.menus.menu.append(new MenuItem({
             label: window.siyuan.languages.openByNewWindow,

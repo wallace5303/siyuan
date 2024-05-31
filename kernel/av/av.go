@@ -40,7 +40,8 @@ type AttributeView struct {
 	Spec      int          `json:"spec"`      // 格式版本
 	ID        string       `json:"id"`        // 属性视图 ID
 	Name      string       `json:"name"`      // 属性视图名称
-	KeyValues []*KeyValues `json:"keyValues"` // 属性视图属性列值
+	KeyValues []*KeyValues `json:"keyValues"` // 属性视图属性键值
+	KeyIDs    []string     `json:"keyIDs"`    // 属性视图属性键 ID，用于排序
 	ViewID    string       `json:"viewID"`    // 当前视图 ID
 	Views     []*View      `json:"views"`     // 视图
 }
@@ -64,22 +65,23 @@ func (kValues *KeyValues) GetValue(blockID string) (ret *Value) {
 type KeyType string
 
 const (
-	KeyTypeBlock    KeyType = "block"
-	KeyTypeText     KeyType = "text"
-	KeyTypeNumber   KeyType = "number"
-	KeyTypeDate     KeyType = "date"
-	KeyTypeSelect   KeyType = "select"
-	KeyTypeMSelect  KeyType = "mSelect"
-	KeyTypeURL      KeyType = "url"
-	KeyTypeEmail    KeyType = "email"
-	KeyTypePhone    KeyType = "phone"
-	KeyTypeMAsset   KeyType = "mAsset"
-	KeyTypeTemplate KeyType = "template"
-	KeyTypeCreated  KeyType = "created"
-	KeyTypeUpdated  KeyType = "updated"
-	KeyTypeCheckbox KeyType = "checkbox"
-	KeyTypeRelation KeyType = "relation"
-	KeyTypeRollup   KeyType = "rollup"
+	KeyTypeBlock      KeyType = "block"
+	KeyTypeText       KeyType = "text"
+	KeyTypeNumber     KeyType = "number"
+	KeyTypeDate       KeyType = "date"
+	KeyTypeSelect     KeyType = "select"
+	KeyTypeMSelect    KeyType = "mSelect"
+	KeyTypeURL        KeyType = "url"
+	KeyTypeEmail      KeyType = "email"
+	KeyTypePhone      KeyType = "phone"
+	KeyTypeMAsset     KeyType = "mAsset"
+	KeyTypeTemplate   KeyType = "template"
+	KeyTypeCreated    KeyType = "created"
+	KeyTypeUpdated    KeyType = "updated"
+	KeyTypeCheckbox   KeyType = "checkbox"
+	KeyTypeRelation   KeyType = "relation"
+	KeyTypeRollup     KeyType = "rollup"
+	KeyTypeLineNumber KeyType = "lineNumber"
 )
 
 // Key 描述了属性视图属性列的基础结构。
@@ -91,20 +93,23 @@ type Key struct {
 
 	// 以下是某些列类型的特有属性
 
-	// 单选/多选列
+	// 单选/多选
 	Options []*SelectOption `json:"options,omitempty"` // 选项列表
 
-	// 数字列
+	// 数字
 	NumberFormat NumberFormat `json:"numberFormat"` // 列数字格式化
 
-	// 模板列
+	// 模板
 	Template string `json:"template"` // 模板内容
 
-	// 关联列
+	// 关联
 	Relation *Relation `json:"relation,omitempty"` // 关联信息
 
-	// 汇总列
+	// 汇总
 	Rollup *Rollup `json:"rollup,omitempty"` // 汇总信息
+
+	// 日期
+	Date *Date `json:"date,omitempty"` // 日期设置
 }
 
 func NewKey(id, name, icon string, keyType KeyType) *Key {
@@ -114,6 +119,20 @@ func NewKey(id, name, icon string, keyType KeyType) *Key {
 		Type: keyType,
 		Icon: icon,
 	}
+}
+
+func (k *Key) GetOption(name string) (ret *SelectOption) {
+	for _, option := range k.Options {
+		if option.Name == name {
+			ret = option
+			return
+		}
+	}
+	return
+}
+
+type Date struct {
+	AutoFillNow bool `json:"autoFillNow"` // 是否自动填充当前时间 The database date field supports filling the current time by default https://github.com/siyuan-note/siyuan/issues/10823
 }
 
 type Rollup struct {
@@ -172,7 +191,7 @@ func NewTableView() (ret *View) {
 	return
 }
 
-func NewTableViewWithBlockKey(blockKeyID string) (view *View, blockKey *Key) {
+func NewTableViewWithBlockKey(blockKeyID string) (view *View, blockKey, selectKey *Key) {
 	name := getI18nName("table")
 	view = &View{
 		ID:         ast.NewNodeID(),
@@ -188,6 +207,9 @@ func NewTableViewWithBlockKey(blockKeyID string) (view *View, blockKey *Key) {
 	}
 	blockKey = NewKey(blockKeyID, getI18nName("key"), "", KeyTypeBlock)
 	view.Table.Columns = []*ViewTableColumn{{ID: blockKeyID}}
+
+	selectKey = NewKey(ast.NewNodeID(), getI18nName("select"), "", KeyTypeSelect)
+	view.Table.Columns = append(view.Table.Columns, &ViewTableColumn{ID: selectKey.ID})
 	return
 }
 
@@ -202,11 +224,11 @@ type Viewable interface {
 }
 
 func NewAttributeView(id string) (ret *AttributeView) {
-	view, blockKey := NewTableViewWithBlockKey(ast.NewNodeID())
+	view, blockKey, selectKey := NewTableViewWithBlockKey(ast.NewNodeID())
 	ret = &AttributeView{
 		Spec:      0,
 		ID:        id,
-		KeyValues: []*KeyValues{{Key: blockKey}},
+		KeyValues: []*KeyValues{{Key: blockKey}, {Key: selectKey}},
 		ViewID:    view.ID,
 		Views:     []*View{view},
 	}
@@ -219,9 +241,13 @@ func GetAttributeViewName(avID string) (ret string, err error) {
 		return
 	}
 
+	return GetAttributeViewNameByPath(avJSONPath)
+}
+
+func GetAttributeViewNameByPath(avJSONPath string) (ret string, err error) {
 	data, err := filelock.ReadFile(avJSONPath)
 	if nil != err {
-		logging.LogErrorf("read attribute view [%s] failed: %s", avID, err)
+		logging.LogErrorf("read attribute view [%s] failed: %s", avJSONPath, err)
 		return
 	}
 
@@ -326,6 +352,7 @@ func SaveAttributeView(av *AttributeView) (err error) {
 			// 补全 block 的创建时间和更新时间
 			for _, v := range kv.Values {
 				if 0 == v.Block.Created {
+					logging.LogWarnf("block [%s] created time is empty", v.BlockID)
 					if "" == v.Block.ID {
 						v.Block.ID = v.BlockID
 						if "" == v.Block.ID {
@@ -343,6 +370,7 @@ func SaveAttributeView(av *AttributeView) (err error) {
 					}
 				}
 				if 0 == v.Block.Updated {
+					logging.LogWarnf("block [%s] updated time is empty", v.BlockID)
 					v.Block.Updated = v.Block.Created
 				}
 			}
@@ -361,6 +389,7 @@ func SaveAttributeView(av *AttributeView) (err error) {
 					val.KeyID = kv.Key.ID
 				}
 				if "" == v.KeyID {
+					logging.LogWarnf("value [%s] key id is empty", v.ID)
 					v.KeyID = kv.Key.ID
 				}
 
@@ -403,10 +432,12 @@ func SaveAttributeView(av *AttributeView) (err error) {
 
 			// 补全值的创建时间和更新时间
 			if "" == v.ID {
+				logging.LogWarnf("value id is empty")
 				v.ID = ast.NewNodeID()
 			}
 
 			if 0 == v.CreatedAt {
+				logging.LogWarnf("value [%s] created time is empty", v.ID)
 				createdStr := v.ID[:len("20060102150405")]
 				created, parseErr := time.ParseInLocation("20060102150405", createdStr, time.Local)
 				if nil == parseErr {
@@ -417,6 +448,7 @@ func SaveAttributeView(av *AttributeView) (err error) {
 			}
 
 			if 0 == v.UpdatedAt {
+				logging.LogWarnf("value [%s] updated time is empty", v.ID)
 				v.UpdatedAt = v.CreatedAt
 			}
 		}
@@ -518,6 +550,22 @@ func (av *AttributeView) GetCurrentView(viewID string) (ret *View, err error) {
 	}
 	ret = av.Views[0]
 	return
+}
+
+func (av *AttributeView) ExistBlock(blockID string) bool {
+	for _, kv := range av.KeyValues {
+		if KeyTypeBlock != kv.Key.Type {
+			continue
+		}
+
+		for _, v := range kv.Values {
+			if v.BlockID == blockID {
+				return true
+			}
+		}
+		return false
+	}
+	return false
 }
 
 func (av *AttributeView) GetValue(keyID, blockID string) (ret *Value) {

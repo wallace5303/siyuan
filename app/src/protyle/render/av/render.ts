@@ -1,11 +1,11 @@
 import {fetchPost} from "../../../util/fetch";
 import {getColIconByType} from "./col";
 import {Constants} from "../../../constants";
-import {renderCell} from "./cell";
+import {addDragFill, renderCell} from "./cell";
 import {unicode2Emoji} from "../../../emoji";
 import {focusBlock} from "../../util/selection";
-import {hasClosestBlock, hasClosestByClassName} from "../../util/hasClosest";
-import {stickyRow} from "./row";
+import {hasClosestBlock, hasClosestByAttribute, hasClosestByClassName} from "../../util/hasClosest";
+import {stickyRow, updateHeader} from "./row";
 import {getCalcValue} from "./calc";
 import {renderAVAttribute} from "./blockAttr";
 import {showMessage} from "../../../dialog/message";
@@ -45,11 +45,27 @@ export const avRender = (element: Element, protyle: IProtyle, cb?: () => void, v
             const left = e.querySelector(".av__scroll")?.scrollLeft || 0;
             const headerTransform = (e.querySelector(".av__row--header") as HTMLElement)?.style.transform;
             const footerTransform = (e.querySelector(".av__row--footer") as HTMLElement)?.style.transform;
+            const selectRowIds: string[] = [];
+            e.querySelectorAll(".av__row--select").forEach(rowItem => {
+                const rowId = rowItem.getAttribute("data-id");
+                if (rowId) {
+                    selectRowIds.push(rowId);
+                }
+            });
             let selectCellId = "";
             const selectCellElement = e.querySelector(".av__cell--select") as HTMLElement;
             if (selectCellElement) {
                 selectCellId = (hasClosestByClassName(selectCellElement, "av__row") as HTMLElement).dataset.id + Constants.ZWSP + selectCellElement.getAttribute("data-col-id");
             }
+            let dragFillId = "";
+            const dragFillElement = e.querySelector(".av__drag-fill") as HTMLElement;
+            if (dragFillElement) {
+                dragFillId = (hasClosestByClassName(dragFillElement, "av__row") as HTMLElement).dataset.id + Constants.ZWSP + dragFillElement.parentElement.getAttribute("data-col-id");
+            }
+            const activeIds: string[] = [];
+            e.querySelectorAll(".av__cell--active").forEach((item: HTMLElement) => {
+                activeIds.push((hasClosestByClassName(item, "av__row") as HTMLElement).dataset.id + Constants.ZWSP + item.getAttribute("data-col-id"));
+            });
             const created = protyle.options.history?.created;
             const snapshot = protyle.options.history?.snapshot;
             let newViewID = e.getAttribute(Constants.CUSTOM_SY_AV_VIEW) || "";
@@ -105,6 +121,7 @@ export const avRender = (element: Element, protyle: IProtyle, cb?: () => void, v
                     tableHTML = '<div class="av__row av__row--header"><div class="av__colsticky"><div class="av__firstcol"><svg><use xlink:href="#iconUncheck"></use></svg></div>';
                     calcHTML = '<div class="av__colsticky">';
                 }
+                let hasCalc = false;
                 data.columns.forEach((column: IAVColumn, index: number) => {
                     if (column.hidden) {
                         return;
@@ -120,20 +137,30 @@ style="width: ${column.width || "200px"};">
                     if (pinIndex === index) {
                         tableHTML += "</div>";
                     }
-                    calcHTML += `<div class="av__calc${column.calc && column.calc.operator !== "" ? " av__calc--ashow" : ""}" data-col-id="${column.id}" data-dtype="${column.type}" data-operator="${column.calc?.operator || ""}"  
-style="width: ${index === 0 ? ((parseInt(column.width || "200") + 24) + "px") : (column.width || "200px")}">${getCalcValue(column) || '<svg><use xlink:href="#iconDown"></use></svg>' + window.siyuan.languages.calc}</div>`;
+
+                    if (column.type === "lineNumber") {
+                        // lineNumber type 不参与计算操作
+                        calcHTML += `<div data-col-id="${column.id}" data-dtype="${column.type}" class="av__calc" style="width: ${column.width || "200px"}">&nbsp;</div>`;
+                    } else {
+                        calcHTML += `<div class="av__calc${column.calc && column.calc.operator !== "" ? " av__calc--ashow" : ""}" data-col-id="${column.id}" data-dtype="${column.type}" data-operator="${column.calc?.operator || ""}" 
+style="width: ${column.width || "200px"}">${getCalcValue(column) || '<svg><use xlink:href="#iconDown"></use></svg>' + window.siyuan.languages.calc}</div>`;
+                    }
+                    if (column.calc && column.calc.operator !== "") {
+                        hasCalc = true;
+                    }
+
                     if (pinIndex === index) {
                         calcHTML += "</div>";
                     }
                 });
                 tableHTML += `<div class="block__icons" style="min-height: auto">
-    <div class="block__icon block__icon--show" data-type="av-header-add"><svg><use xlink:href="#iconAdd"></use></svg></div>
+    <div class="block__icon block__icon--show" data-type="av-header-more"><svg><use xlink:href="#iconMore"></use></svg></div>
     <div class="fn__space"></div>
-    <div class="block__icon block__icon--show"  data-type="av-header-more"><svg><use xlink:href="#iconMore"></use></svg></div>
+    <div class="block__icon block__icon--show ariaLabel" aria-label="${window.siyuan.languages.newCol}" data-type="av-header-add" data-position="4bottom"><svg><use xlink:href="#iconAdd"></use></svg></div>
 </div>
 </div>`;
                 // body
-                data.rows.forEach((row: IAVRow) => {
+                data.rows.forEach((row: IAVRow, rowIndex: number) => {
                     tableHTML += `<div class="av__row" data-id="${row.id}">`;
                     if (pinIndex > -1) {
                         tableHTML += '<div class="av__colsticky"><div class="av__firstcol"><svg><use xlink:href="#iconUncheck"></use></svg></div>';
@@ -156,7 +183,7 @@ ${cell.value?.isDetached ? ' data-detached="true"' : ""}
 style="width: ${data.columns[index].width || "200px"};
 ${cell.valueType === "number" ? "text-align: right;" : ""}
 ${cell.bgColor ? `background-color:${cell.bgColor};` : ""}
-${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value)}</div>`;
+${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value, rowIndex)}</div>`;
 
                         if (pinIndex === index) {
                             tableHTML += "</div>";
@@ -175,15 +202,20 @@ ${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value)}</div>`;
                         viewData = item;
                     }
                 });
-
-                e.firstElementChild.outerHTML = `<div class="av__container" style="--av-background:${e.style.backgroundColor || "var(--b3-theme-background)"}">
+                let avBackground = "--av-background:var(--b3-theme-background)";
+                if (e.style.backgroundColor) {
+                    avBackground = "--av-background:" + e.style.backgroundColor;
+                } else if (hasClosestByAttribute(e, "data-type", "NodeBlockQueryEmbed")) {
+                    avBackground = "--av-background:var(--b3-theme-surface)";
+                }
+                e.firstElementChild.outerHTML = `<div class="av__container" style="${avBackground}">
     <div class="av__header">
         <div class="fn__flex av__views${isSearching || query ? " av__views--show" : ""}">
             <div class="layout-tab-bar fn__flex">
                 ${tabHTML}
             </div>
             <div class="fn__space"></div>
-            <span data-type="av-add" class="block__icon">
+            <span data-type="av-add" class="block__icon ariaLabel" data-position="8bottom" aria-label="${window.siyuan.languages.newView}">
                 <svg><use xlink:href="#iconAdd"></use></svg>
             </span>
             <div class="fn__flex-1"></div>
@@ -205,7 +237,7 @@ ${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value)}</div>`;
             <span data-type="av-search-icon" class="block__icon">
                 <svg><use xlink:href="#iconSearch"></use></svg>
             </span>
-            <div style="position: relative">
+            <div style="position: relative" class="fn__flex">
                 <input style="${isSearching || query ? "width:128px" : "width:0;padding-left: 0;padding-right: 0;"}" data-type="av-search" class="b3-text-field b3-text-field--text" placeholder="${window.siyuan.languages.search}">
             </div>
             <div class="fn__space"></div>
@@ -213,20 +245,20 @@ ${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value)}</div>`;
                 <svg><use xlink:href="#iconMore"></use></svg>
             </span>
             <div class="fn__space"></div>
-            <span data-type="av-add-more" class="block__icon">
+            <span data-type="av-add-more" class="block__icon ariaLabel" data-position="8bottom" aria-label="${window.siyuan.languages.newRow}">
                 <svg><use xlink:href="#iconAdd"></use></svg>
             </span>
             <div class="fn__space"></div>
-            ${response.data.isMirror ? ` <span data-av-id="${response.data.id}" data-popover-url="/api/av/getMirrorDatabaseBlocks" class="popover__block block__icon block__icon--show ariaLabel" aria-label="${window.siyuan.languages.mirrorTip}">
+            ${response.data.isMirror ? ` <span data-av-id="${response.data.id}" data-popover-url="/api/av/getMirrorDatabaseBlocks" class="popover__block block__icon block__icon--show ariaLabel" data-position="8bottom" aria-label="${window.siyuan.languages.mirrorTip}">
     <svg><use xlink:href="#iconSplitLR"></use></svg></span><div class="fn__space"></div>` : ""}
         </div>
-        <div contenteditable="${protyle.disabled ? "false" : "true"}" spellcheck="${window.siyuan.config.editor.spellcheck.toString()}" class="av__title${viewData.hideAttrViewName ? " av__title--hide" : ""}" data-title="${response.data.name || ""}" data-tip="${window.siyuan.languages.title}">${response.data.name || ""}</div>
+        <div contenteditable="${protyle.disabled ? "false" : "true"}" spellcheck="${window.siyuan.config.editor.spellcheck.toString()}" class="av__title${viewData.hideAttrViewName ? " fn__none" : ""}" data-title="${response.data.name || ""}" data-tip="${window.siyuan.languages.title}">${response.data.name || ""}</div>
         <div class="av__counter fn__none"></div>
     </div>
     <div class="av__scroll">
         <div class="av__body">
             ${tableHTML}
-            <div class="av__row--util">
+            <div class="av__row--util${data.rowCount > data.rows.length ? " av__readonly--show" : ""}">
                 <div class="av__colsticky">
                     <button class="b3-button" data-type="av-add-bottom">
                         <svg><use xlink:href="#iconAdd"></use></svg>
@@ -242,9 +274,10 @@ ${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value)}</div>`;
                     </button>
                 </div>
             </div>
-            <div class="av__row--footer">${calcHTML}</div>
+            <div class="av__row--footer${hasCalc ? " av__readonly--show" : ""}">${calcHTML}</div>
         </div>
     </div>
+    <div class="av__cursor" contenteditable="true">${Constants.ZWSP}</div>
 </div>`;
                 e.setAttribute("data-render", "true");
                 // 历史兼容
@@ -278,6 +311,25 @@ ${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value)}</div>`;
                         focusBlock(e);
                     }
                 }
+                selectRowIds.forEach((selectRowId, index) => {
+                    const rowElement = e.querySelector(`.av__row[data-id="${selectRowId}"]`) as HTMLElement;
+                    if (rowElement) {
+                        rowElement.classList.add("av__row--select");
+                        rowElement.querySelector(".av__firstcol use").setAttribute("xlink:href", "#iconCheck");
+
+                    }
+
+                    if (index === selectRowIds.length - 1 && rowElement) {
+                        updateHeader(rowElement);
+                    }
+                });
+
+                if (dragFillId) {
+                    addDragFill(e.querySelector(`.av__row[data-id="${dragFillId.split(Constants.ZWSP)[0]}"] .av__cell[data-col-id="${dragFillId.split(Constants.ZWSP)[1]}"]`));
+                }
+                activeIds.forEach(activeId => {
+                    e.querySelector(`.av__row[data-id="${activeId.split(Constants.ZWSP)[0]}"] .av__cell[data-col-id="${activeId.split(Constants.ZWSP)[1]}"]`)?.classList.add("av__cell--active");
+                });
                 if (getSelection().rangeCount > 0) {
                     // 修改表头后光标重新定位
                     const range = getSelection().getRangeAt(0);
@@ -326,6 +378,7 @@ ${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value)}</div>`;
                 addClearButton({
                     inputElement: searchInputElement,
                     right: 0,
+                    width: "1em",
                     height: searchInputElement.clientHeight,
                     clearCB() {
                         viewsElement.classList.remove("av__views--show");
@@ -371,7 +424,7 @@ export const refreshAV = (protyle: IProtyle, operation: IOperation) => {
         if (operation.action === "setAttrViewColWidth") {
             Array.from(protyle.wysiwyg.element.querySelectorAll(`[data-av-id="${operation.avID}"]`)).forEach((item: HTMLElement) => {
                 const cellElement = item.querySelector(`.av__cell[data-col-id="${operation.id}"]`) as HTMLElement;
-                if (!cellElement || cellElement.style.width === operation.data) {
+                if (!cellElement || cellElement.style.width === operation.data || item.getAttribute("custom-sy-av-view") !== operation.keyID) {
                     return;
                 }
                 item.querySelectorAll(".av__row").forEach(rowItem => {
@@ -382,6 +435,13 @@ export const refreshAV = (protyle: IProtyle, operation: IOperation) => {
             Array.from(protyle.wysiwyg.element.querySelectorAll(`[data-av-id="${operation.avID}"]`)).forEach((item: HTMLElement) => {
                 item.removeAttribute("data-render");
                 const updateRow = item.querySelector('.av__row[data-need-update="true"]');
+                if (operation.action === "sortAttrViewCol" || operation.action === "sortAttrViewRow") {
+                    item.querySelectorAll(".av__cell--active").forEach((item: HTMLElement) => {
+                        item.classList.remove("av__cell--active");
+                        item.querySelector(".av__drag-fill")?.remove();
+                    });
+                    addDragFill(item.querySelector(".av__cell--select"));
+                }
                 avRender(item, protyle, () => {
                     const attrElement = document.querySelector(`.b3-dialog--open[data-key="${Constants.DIALOG_ATTR}"] div[data-av-id="${operation.avID}"]`) as HTMLElement;
                     if (attrElement) {

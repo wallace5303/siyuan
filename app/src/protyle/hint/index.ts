@@ -9,7 +9,7 @@ import {
     getSelectionPosition
 } from "../util/selection";
 import {genHintItemHTML, hintEmbed, hintRef, hintSlash} from "./extend";
-import {getSavePath} from "../../util/newFile";
+import {getSavePath, newFile} from "../../util/newFile";
 import {upDownHint} from "../../util/upDownHint";
 import {setPosition} from "../../util/setPosition";
 import {getContenteditableElement, hasNextSibling, hasPreviousSibling} from "../wysiwyg/getBlock";
@@ -305,22 +305,22 @@ ${unicode2Emoji(emoji.unicode)}</button>`;
                     return;
                 }
                 event.stopPropagation();
-                this.genSearchHTML(protyle, searchElement, nodeElement, oldValue);
+                this.genSearchHTML(protyle, searchElement, nodeElement, oldValue, source);
             });
             searchElement.addEventListener("compositionend", (event: InputEvent) => {
                 event.stopPropagation();
-                this.genSearchHTML(protyle, searchElement, nodeElement, oldValue);
+                this.genSearchHTML(protyle, searchElement, nodeElement, oldValue, source);
             });
         }
     }
 
-    private genSearchHTML(protyle: IProtyle, searchElement: HTMLInputElement, nodeElement: false | HTMLElement, oldValue: string) {
+    private genSearchHTML(protyle: IProtyle, searchElement: HTMLInputElement, nodeElement: false | HTMLElement, oldValue: string, source: THintSource) {
         this.element.lastElementChild.innerHTML = '<div class="ft__center"><img style="height:32px;width:32px;" src="/stage/loading-pure.svg"></div>';
         fetchPost("/api/search/searchRefBlock", {
             k: searchElement.value,
             id: nodeElement ? nodeElement.getAttribute("data-node-id") : protyle.block.parentID,
             beforeLen: Math.floor((Math.max(protyle.element.clientWidth / 2, 320) - 58) / 28.8),
-            rootID: protyle.block.rootID,
+            rootID: source === "av" ? "" : protyle.block.rootID,
         }, (response) => {
             let searchHTML = "";
             if (response.data.newDoc) {
@@ -419,11 +419,11 @@ ${genHintItemHTML(item)}
                 const realFileName = fileNames.length === 1 ? fileNames[0] : fileNames[1];
                 const newID = Lute.NewNodeID();
                 rowElement.dataset.id = newID;
-                getSavePath(protyle.path, protyle.notebookId, (pathString) => {
+                getSavePath(protyle.path, protyle.notebookId, (pathString, targetNotebookId) => {
                     fetchPost("/api/filetree/createDocWithMd", {
-                        notebook: protyle.notebookId,
+                        notebook: targetNotebookId,
                         path: pathPosix().join(pathString, realFileName),
-                        parentID: protyle.block.rootID,
+                        parentID: protyle.notebookId === targetNotebookId ? protyle.block.rootID : "",
                         markdown: "",
                         id: newID,
                     }, () => {
@@ -507,11 +507,11 @@ ${genHintItemHTML(item)}
         if (Constants.BLOCK_HINT_KEYS.includes(this.splitChar) && value.startsWith("((newFile ") && value.endsWith(`${Lute.Caret}'))`)) {
             const fileNames = value.substring(11, value.length - 4).split(`"${Constants.ZWSP}'`);
             const realFileName = fileNames.length === 1 ? fileNames[0] : fileNames[1];
-            getSavePath(protyle.path, protyle.notebookId, (pathString) => {
+            getSavePath(protyle.path, protyle.notebookId, (pathString, targetNotebookId) => {
                 fetchPost("/api/filetree/createDocWithMd", {
-                    notebook: protyle.notebookId,
+                    notebook: targetNotebookId,
                     path: pathPosix().join(pathString, realFileName),
-                    parentID: protyle.block.rootID,
+                    parentID: protyle.notebookId === targetNotebookId ? protyle.block.rootID : "",
                     markdown: ""
                 }, response => {
                     // https://github.com/siyuan-note/siyuan/issues/10133
@@ -615,21 +615,34 @@ ${genHintItemHTML(item)}
                 range.deleteContents();
                 return;
             } else if (value === Constants.ZWSP + 4) {
+                // 新建文档
+                newFile({
+                    app: protyle.app,
+                    notebookId: protyle.notebookId,
+                    useSavePath: true,
+                    currentPath: protyle.path,
+                    afterCB: (createDocId, createDocTitle) => {
+                        insertHTML(`<span data-type="block-ref" data-id="${createDocId}" data-subtype="d">${createDocTitle}</span>`, protyle);
+                    }
+                });
+                return;
+            } else if (value === Constants.ZWSP + 6) {
+                // 新建子文档
                 const newSubDocId = Lute.NewNodeID();
                 fetchPost("/api/filetree/createDoc", {
                     notebook: protyle.notebookId,
                     path: pathPosix().join(getDisplayName(protyle.path, false, true), newSubDocId + ".sy"),
-                    title: "Untitled",
+                    title: window.siyuan.languages.untitled,
                     md: ""
                 }, () => {
-                    insertHTML(`<span data-type="block-ref" data-id="${newSubDocId}" data-subtype="d">Untitled</span>`, protyle);
+                    insertHTML(`<span data-type="block-ref" data-id="${newSubDocId}" data-subtype="d">${window.siyuan.languages.untitled}</span>`, protyle);
                     /// #if MOBILE
-                    openMobileFileById(protyle.app, newSubDocId, [Constants.CB_GET_HL, Constants.CB_GET_CONTEXT]);
+                    openMobileFileById(protyle.app, newSubDocId, [Constants.CB_GET_CONTEXT, Constants.CB_GET_OPENNEW]);
                     /// #else
                     openFileById({
                         app: protyle.app,
                         id: newSubDocId,
-                        action: [Constants.CB_GET_HL, Constants.CB_GET_CONTEXT]
+                        action: [Constants.CB_GET_CONTEXT, Constants.CB_GET_OPENNEW]
                     });
                     /// #endif
                 });
@@ -680,7 +693,7 @@ ${genHintItemHTML(item)}
                 }
                 let textContent = value;
                 if (value === "```") {
-                    textContent = value + window.siyuan.storage[Constants.LOCAL_CODELANG] + Lute.Caret + "\n```";
+                    textContent = value + (Constants.SIYUAN_RENDER_CODE_LANGUAGES.includes(window.siyuan.storage[Constants.LOCAL_CODELANG]) ? "" : window.siyuan.storage[Constants.LOCAL_CODELANG]) + Lute.Caret + "\n```";
                 }
                 const editableElement = getContenteditableElement(nodeElement);
                 if (value === "![]()") { // https://github.com/siyuan-note/siyuan/issues/4586 1
@@ -763,7 +776,7 @@ ${genHintItemHTML(item)}
                         action: "update"
                     }]);
                 }
-                if (value === "<div>" || value === "$$" || (value.indexOf("```") > -1 && value.length > 3)) {
+                if (value === "<div>" || value === "$$" || (value.indexOf("```") > -1 && (value.length > 3 || nodeElement.classList.contains("render-node")))) {
                     protyle.toolbar.showRender(protyle, nodeElement);
                     processRender(nodeElement);
                 } else if (value.startsWith("```")) {
@@ -784,7 +797,7 @@ ${genHintItemHTML(item)}
                     focusBlock(nodeElement);
                 } else if (nodeElement.classList.contains("av")) {
                     avRender(nodeElement, protyle, () => {
-                        focusBlock(nodeElement);
+                        (nodeElement.querySelector(".av__title") as HTMLInputElement).focus();
                     });
                 } else {
                     focusByWbr(nodeElement, range);
@@ -970,7 +983,10 @@ ${genHintItemHTML(item)}
         }
         const lineArray = currentLineValue.split(this.splitChar);
         const lastItem = lineArray[lineArray.length - 1];
-        if (lineArray.length > 1 && lastItem.trim() === lastItem && lastItem.length < Constants.SIZE_TITLE) {
+        if (lineArray.length > 1 &&
+            // https://github.com/siyuan-note/siyuan/issues/10637
+            lastItem.trimStart() === lastItem &&
+            lastItem.length < Constants.SIZE_TITLE) {
             // 输入法自动补全 https://github.com/siyuan-note/insider/issues/100
             if (this.splitChar === "【【" && currentLineValue.endsWith("【【】")) {
                 return "";

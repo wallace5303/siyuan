@@ -31,6 +31,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 	"github.com/siyuan-note/siyuan/kernel/search"
 	"github.com/siyuan-note/siyuan/kernel/sql"
+	"github.com/siyuan-note/siyuan/kernel/task"
 	"github.com/siyuan-note/siyuan/kernel/treenode"
 )
 
@@ -51,7 +52,7 @@ func getBlockVirtualRefKeywords(root *ast.Node) (ret []string) {
 				return ast.WalkContinue
 			}
 
-			content := treenode.NodeStaticContent(n, nil, false, false, false)
+			content := sql.NodeStaticContent(n, nil, false, false, false, GetBlockAttrsWithoutWaitWriting)
 			buf.WriteString(content)
 			return ast.WalkContinue
 		})
@@ -99,18 +100,20 @@ func putBlockVirtualRefKeywords(blockContent string, root *ast.Node) (ret []stri
 }
 
 func CacheVirtualBlockRefJob() {
-	virtualBlockRefCache.Del("virtual_ref")
+	if !Conf.Editor.VirtualBlockRef {
+		return
+	}
+	task.AppendTask(task.CacheVirtualBlockRef, ResetVirtualBlockRefCache)
+}
+
+func ResetVirtualBlockRefCache() {
+	virtualBlockRefCache.Clear()
 	if !Conf.Editor.VirtualBlockRef {
 		return
 	}
 
 	keywords := sql.QueryVirtualRefKeywords(Conf.Search.VirtualRefName, Conf.Search.VirtualRefAlias, Conf.Search.VirtualRefAnchor, Conf.Search.VirtualRefDoc)
 	virtualBlockRefCache.Set("virtual_ref", keywords, 1)
-}
-
-func ResetVirtualBlockRefCache() {
-	virtualBlockRefCache.Clear()
-	CacheVirtualBlockRefJob()
 }
 
 func AddVirtualBlockRefInclude(keyword []string) {
@@ -144,7 +147,7 @@ func AddVirtualBlockRefExclude(keyword []string) {
 }
 
 func processVirtualRef(n *ast.Node, unlinks *[]*ast.Node, virtualBlockRefKeywords []string, refCount map[string]int, luteEngine *lute.Lute) bool {
-	if !Conf.Editor.VirtualBlockRef {
+	if !Conf.Editor.VirtualBlockRef || 1 > len(virtualBlockRefKeywords) {
 		return false
 	}
 
@@ -153,12 +156,15 @@ func processVirtualRef(n *ast.Node, unlinks *[]*ast.Node, virtualBlockRefKeyword
 	}
 
 	parentBlock := treenode.ParentBlock(n)
-	if nil == parentBlock || 0 < refCount[parentBlock.ID] {
+	if nil == parentBlock {
 		return false
 	}
 
-	if 1 > len(virtualBlockRefKeywords) {
-		return false
+	if 0 < refCount[parentBlock.ID] {
+		// 如果块被引用过，则将其自身的文本排除在虚拟引用关键字之外
+		// Referenced blocks support rendering virtual references https://github.com/siyuan-note/siyuan/issues/10960
+		parentText := getNodeRefText(parentBlock)
+		virtualBlockRefKeywords = gulu.Str.RemoveElem(virtualBlockRefKeywords, parentText)
 	}
 
 	content := string(n.Tokens)
@@ -275,7 +281,7 @@ func prepareMarkKeywords(keywords []string) (ret []string) {
 	ret = gulu.Str.RemoveDuplicatedElem(keywords)
 	var tmp []string
 	for _, k := range ret {
-		if "" != k {
+		if "" != k && "*" != k { // 提及和虚引排除 * Ignore `*` back mentions and virtual references https://github.com/siyuan-note/siyuan/issues/10873
 			tmp = append(tmp, k)
 		}
 	}

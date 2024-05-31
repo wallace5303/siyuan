@@ -1,5 +1,5 @@
 /// #if !MOBILE
-import {getAllModels, getAllWnds} from "../../layout/getAll";
+import {getAllEditor, getAllModels, getAllWnds} from "../../layout/getAll";
 /// #endif
 import {addLoading} from "../ui/initUI";
 import {fetchPost} from "../../util/fetch";
@@ -24,9 +24,9 @@ export const net2LocalAssets = (protyle: IProtyle, type: "Assets" | "Img") => {
         /// #if MOBILE
         reloadProtyle(protyle, false);
         /// #else
-        getAllModels().editor.forEach(item => {
-            if (item.editor.protyle.block.rootID === protyle.block.rootID) {
-                reloadProtyle(item.editor.protyle, item.editor.protyle.element.isSameNode(protyle.element));
+        getAllEditor().forEach(item => {
+            if (item.protyle.block.rootID === protyle.block.rootID) {
+                reloadProtyle(item.protyle, item.protyle.element.isSameNode(protyle.element));
             }
         });
         /// #endif
@@ -46,7 +46,21 @@ export const fullscreen = (element: Element, btnElement?: Element) => {
         element.classList.add("fullscreen");
         document.getElementById("drag")?.classList.add("fn__hidden");
     }
-
+    if (isWindow()) {
+        // 编辑器全屏
+        /// #if !MOBILE
+        const wndsTemp: Wnd[] = [];
+        getAllWnds(window.siyuan.layout.layout, wndsTemp);
+        wndsTemp.find(async item => {
+            const headerElement = item.headersElement.parentElement;
+            if (headerElement.getBoundingClientRect().top <= 0) {
+                // @ts-ignore
+                (headerElement.querySelector(".item--readonly .fn__flex-1") as HTMLElement).style.WebkitAppRegion = isFullscreen ? "drag" : "";
+                return true;
+            }
+        });
+        /// #endif
+    }
     if (btnElement) {
         if (isFullscreen) {
             btnElement.querySelector("use").setAttribute("xlink:href", "#iconFullscreen");
@@ -64,20 +78,6 @@ export const fullscreen = (element: Element, btnElement?: Element) => {
             }
         }
         return;
-    } else if (isWindow()) {
-        // 编辑器全屏
-        /// #if !MOBILE
-        const wndsTemp: Wnd[] = [];
-        getAllWnds(window.siyuan.layout.layout, wndsTemp);
-        wndsTemp.find(async item => {
-            const headerElement = item.headersElement.parentElement;
-            if (headerElement.getBoundingClientRect().top <= 0) {
-                // @ts-ignore
-                (headerElement.querySelector(".item--readonly .fn__flex-1") as HTMLElement).style.WebkitAppRegion = isFullscreen ? "drag" : "";
-                return;
-            }
-        });
-        /// #endif
     }
     /// #if !MOBILE
     if (element.classList.contains("protyle")) {

@@ -31,6 +31,8 @@ import {bindRollupData, getRollupHTML, goSearchRollupCol} from "./rollup";
 import {updateCellsValue} from "./cell";
 import {openCalcMenu} from "./calc";
 import * as dayjs from "dayjs";
+import {confirmDialog} from "../../../dialog/confirmDialog";
+import {escapeAttr} from "../../../util/escape";
 
 export const openMenuPanel = (options: {
     protyle: IProtyle,
@@ -50,14 +52,21 @@ export const openMenuPanel = (options: {
         avPanelElement.remove();
         return;
     }
-    window.siyuan.menus.menu.remove();
     const avID = options.blockElement.getAttribute("data-av-id");
-    const blockID = options.blockElement.getAttribute("data-node-id");
     fetchPost("/api/av/renderAttributeView", {
         id: avID,
+        query: (options.blockElement.querySelector('[data-type="av-search"]') as HTMLInputElement)?.value || "",
         pageSize: parseInt(options.blockElement.getAttribute("data-page-size")) || undefined,
         viewID: options.blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW)
     }, (response) => {
+        avPanelElement = document.querySelector(".av__panel");
+        if (avPanelElement) {
+            avPanelElement.remove();
+            return;
+        }
+        window.siyuan.menus.menu.remove();
+        const blockID = options.blockElement.getAttribute("data-node-id");
+
         const isCustomAttr = !options.blockElement.classList.contains("av");
         const data = response.data as IAV;
         let html;
@@ -72,7 +81,7 @@ export const openMenuPanel = (options: {
         } else if (options.type === "filters") {
             html = getFiltersHTML(data.view);
         } else if (options.type === "select") {
-            html = getSelectHTML(data.view, options.cellElements);
+            html = getSelectHTML(data.view, options.cellElements, true);
         } else if (options.type === "asset") {
             html = getAssetHTML(options.cellElements);
         } else if (options.type === "edit") {
@@ -113,7 +122,7 @@ export const openMenuPanel = (options: {
         avPanelElement = document.querySelector(".av__panel");
         let closeCB: () => void;
         const menuElement = avPanelElement.lastElementChild as HTMLElement;
-        const tabRect = options.blockElement.querySelector(`.av__views, .av__row[data-col-id="${options.colId}"] > .block__logo`)?.getBoundingClientRect();
+        let tabRect = options.blockElement.querySelector(`.av__views, .av__row[data-col-id="${options.colId}"] > .block__logo`)?.getBoundingClientRect();
         if (["select", "date", "asset", "relation", "rollup"].includes(options.type)) {
             const cellRect = options.cellElements[options.cellElements.length - 1].getBoundingClientRect();
             if (options.type === "select") {
@@ -129,7 +138,6 @@ export const openMenuPanel = (options: {
             } else if (options.type === "asset") {
                 bindAssetEvent({
                     protyle: options.protyle,
-                    data,
                     menuElement,
                     cellElements: options.cellElements,
                     blockElement: options.blockElement
@@ -160,9 +168,9 @@ export const openMenuPanel = (options: {
             if (options.type === "sorts") {
                 bindSortsEvent(options.protyle, menuElement, data, blockID);
             } else if (options.type === "edit") {
-                bindEditEvent({protyle: options.protyle, data, menuElement, isCustomAttr});
+                bindEditEvent({protyle: options.protyle, data, menuElement, isCustomAttr, blockID});
             } else if (options.type === "config") {
-                bindViewEvent({protyle: options.protyle, data, menuElement});
+                bindViewEvent({protyle: options.protyle, data, menuElement, blockElement: options.blockElement});
             }
         }
         if (options.cb) {
@@ -174,6 +182,11 @@ export const openMenuPanel = (options: {
             return;
         });
         avPanelElement.addEventListener("drop", (event) => {
+            if (!window.siyuan.dragElement) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
             window.siyuan.dragElement.style.opacity = "";
             const sourceElement = window.siyuan.dragElement;
             window.siyuan.dragElement = undefined;
@@ -306,9 +319,7 @@ export const openMenuPanel = (options: {
                 });
                 updateAssetCell({
                     protyle: options.protyle,
-                    data,
                     cellElements: options.cellElements,
-                    type: "replace",
                     replaceValue,
                     blockElement: options.blockElement
                 });
@@ -356,7 +367,7 @@ export const openMenuPanel = (options: {
                         colId,
                         isCustomAttr
                     });
-                    bindEditEvent({protyle: options.protyle, data, menuElement, isCustomAttr});
+                    bindEditEvent({protyle: options.protyle, data, menuElement, isCustomAttr, blockID});
                 }
                 return;
             }
@@ -388,40 +399,51 @@ export const openMenuPanel = (options: {
                 return;
             }
 
-            transaction(options.protyle, [{
-                action: "sortAttrViewCol",
-                avID,
-                previousID: (targetElement.classList.contains("dragover__top") ? targetElement.previousElementSibling?.getAttribute("data-id") : targetElement.getAttribute("data-id")) || "",
-                id: sourceId,
-                blockID,
-            }], [{
-                action: "sortAttrViewCol",
-                avID,
-                previousID: sourceElement.previousElementSibling?.getAttribute("data-id") || "",
-                id: sourceId,
-                blockID
-            }]);
-            let column: IAVColumn;
-            data.view.columns.find((item, index: number) => {
-                if (item.id === sourceId) {
-                    column = data.view.columns.splice(index, 1)[0];
-                    return true;
+            if (targetElement.getAttribute("data-type") === "editCol") {
+                const previousID = (targetElement.classList.contains("dragover__top") ? targetElement.previousElementSibling?.getAttribute("data-id") : targetElement.getAttribute("data-id")) || "";
+                const undoPreviousID = sourceElement.previousElementSibling?.getAttribute("data-id") || "";
+                if (previousID !== undoPreviousID && previousID !== sourceId) {
+                    transaction(options.protyle, [{
+                        action: "sortAttrViewCol",
+                        avID,
+                        previousID,
+                        id: sourceId,
+                        blockID,
+                    }], [{
+                        action: "sortAttrViewCol",
+                        avID,
+                        previousID: undoPreviousID,
+                        id: sourceId,
+                        blockID
+                    }]);
+                    let column: IAVColumn;
+                    data.view.columns.find((item, index: number) => {
+                        if (item.id === sourceId) {
+                            column = data.view.columns.splice(index, 1)[0];
+                            return true;
+                        }
+                    });
+                    data.view.columns.find((item, index: number) => {
+                        if (item.id === targetId) {
+                            if (isTop) {
+                                data.view.columns.splice(index, 0, column);
+                            } else {
+                                data.view.columns.splice(index + 1, 0, column);
+                            }
+                            return true;
+                        }
+                    });
                 }
-            });
-            data.view.columns.find((item, index: number) => {
-                if (item.id === targetId) {
-                    if (isTop) {
-                        data.view.columns.splice(index, 0, column);
-                    } else {
-                        data.view.columns.splice(index + 1, 0, column);
-                    }
-                    return true;
-                }
-            });
-            menuElement.innerHTML = getPropertiesHTML(data.view);
+                menuElement.innerHTML = getPropertiesHTML(data.view);
+                return;
+            }
         });
         let dragoverElement: HTMLElement;
         avPanelElement.addEventListener("dragover", (event: DragEvent) => {
+            if (event.dataTransfer.types.includes("Files")) {
+                event.preventDefault();
+                return;
+            }
             const target = event.target as HTMLElement;
             let targetElement = hasClosestByAttribute(target, "draggable", "true");
             if (!targetElement) {
@@ -454,10 +476,14 @@ export const openMenuPanel = (options: {
                 window.siyuan.dragElement = undefined;
             }
         });
-        avPanelElement.addEventListener("click", (event) => {
+        avPanelElement.addEventListener("click", (event: MouseEvent) => {
+            let type: string;
+            if (typeof event.detail === "string") {
+                type = event.detail;
+            }
             let target = event.target as HTMLElement;
-            while (target && !target.isSameNode(avPanelElement)) {
-                const type = target.dataset.type;
+            while (target && !target.isSameNode(avPanelElement) || type) {
+                type = target?.dataset.type || type;
                 if (type === "close") {
                     if (!options.protyle.toolbar.subElement.classList.contains("fn__none")) {
                         // 优先关闭资源文件搜索
@@ -477,13 +503,17 @@ export const openMenuPanel = (options: {
                 } else if (type === "go-config") {
                     menuElement.innerHTML = getViewHTML(data.view);
                     setPosition(menuElement, tabRect.right - menuElement.clientWidth, tabRect.bottom, tabRect.height);
-                    bindViewEvent({protyle: options.protyle, data, menuElement});
+                    bindViewEvent({protyle: options.protyle, data, menuElement, blockElement: options.blockElement});
+                    window.siyuan.menus.menu.remove();
                     event.preventDefault();
                     event.stopPropagation();
                     break;
                 } else if (type === "go-properties") {
+                    // 复制列后点击返回到属性面板，宽度不一致，需重新计算
+                    tabRect = options.blockElement.querySelector(".av__views").getBoundingClientRect();
                     menuElement.innerHTML = getPropertiesHTML(data.view);
                     setPosition(menuElement, tabRect.right - menuElement.clientWidth, tabRect.bottom, tabRect.height);
+                    window.siyuan.menus.menu.remove();
                     event.preventDefault();
                     event.stopPropagation();
                     break;
@@ -491,6 +521,7 @@ export const openMenuPanel = (options: {
                     menuElement.innerHTML = getSortsHTML(data.view.columns, data.view.sorts);
                     bindSortsEvent(options.protyle, menuElement, data, blockID);
                     setPosition(menuElement, tabRect.right - menuElement.clientWidth, tabRect.bottom, tabRect.height);
+                    window.siyuan.menus.menu.remove();
                     event.preventDefault();
                     event.stopPropagation();
                     break;
@@ -554,6 +585,7 @@ export const openMenuPanel = (options: {
                 } else if (type === "goFilters") {
                     menuElement.innerHTML = getFiltersHTML(data.view);
                     setPosition(menuElement, tabRect.right - menuElement.clientWidth, tabRect.bottom, tabRect.height);
+                    window.siyuan.menus.menu.remove();
                     event.preventDefault();
                     event.stopPropagation();
                     break;
@@ -572,6 +604,7 @@ export const openMenuPanel = (options: {
                     data.view.filters = [];
                     menuElement.innerHTML = getFiltersHTML(data.view);
                     setPosition(menuElement, tabRect.right - menuElement.clientWidth, tabRect.bottom, tabRect.height);
+                    window.siyuan.menus.menu.remove();
                     event.preventDefault();
                     event.stopPropagation();
                     break;
@@ -685,39 +718,6 @@ export const openMenuPanel = (options: {
                         avID,
                         nodeElement: options.blockElement
                     });
-                    event.preventDefault();
-                    event.stopPropagation();
-                    break;
-                } else if (type === "toggle-view-title") {
-                    if (target.firstElementChild.getAttribute("xlink:href") === "#iconEyeoff") {
-                        // hide
-                        transaction(options.protyle, [{
-                            action: "hideAttrViewName",
-                            avID,
-                            blockID,
-                            data: true
-                        }], [{
-                            action: "hideAttrViewName",
-                            avID,
-                            blockID,
-                            data: false
-                        }]);
-                        options.blockElement.querySelector(".av__title").classList.add("av__title--hide");
-                    } else {
-                        transaction(options.protyle, [{
-                            action: "hideAttrViewName",
-                            avID,
-                            blockID,
-                            data: false
-                        }], [{
-                            action: "hideAttrViewName",
-                            avID,
-                            blockID,
-                            data: true
-                        }]);
-                        options.blockElement.querySelector(".av__title").classList.remove("av__title--hide");
-                    }
-                    avPanelElement.remove();
                     event.preventDefault();
                     event.stopPropagation();
                     break;
@@ -851,17 +851,18 @@ export const openMenuPanel = (options: {
                     menuElement.innerHTML = getEditHTML({
                         protyle: options.protyle,
                         data,
-                        colId: target.parentElement.dataset.id,
+                        colId: target.dataset.id,
                         isCustomAttr
                     });
-                    bindEditEvent({protyle: options.protyle, data, menuElement, isCustomAttr});
+                    bindEditEvent({protyle: options.protyle, data, menuElement, isCustomAttr, blockID});
                     setPosition(menuElement, tabRect.right - menuElement.clientWidth, tabRect.bottom, tabRect.height);
                     event.preventDefault();
                     event.stopPropagation();
                     break;
                 } else if (type === "updateColType") {
                     if (target.dataset.newType !== target.dataset.oldType) {
-                        const name = target.dataset.name;
+                        const name = (avPanelElement.querySelector('.b3-text-field[data-type="name"]') as HTMLInputElement).value;
+                        data.view.columns.find((item: IAVColumn) => item.id === options.colId).type = target.dataset.newType as TAVCol;
                         transaction(options.protyle, [{
                             action: "updateAttrViewCol",
                             id: options.colId,
@@ -875,8 +876,54 @@ export const openMenuPanel = (options: {
                             name,
                             type: target.dataset.oldType as TAVCol,
                         }]);
+
+                        // 需要取消 lineNumber 列的排序和过滤
+                        if (target.dataset.newType === "lineNumber") {
+                            const sortExist = data.view.sorts.find((sort) => sort.column === options.colId);
+                            if (sortExist) {
+                                const oldSorts = Object.assign([], data.view.sorts);
+                                const newSorts = data.view.sorts.filter((sort) => sort.column !== options.colId);
+
+                                transaction(options.protyle, [{
+                                    action: "setAttrViewSorts",
+                                    avID: data.id,
+                                    data: newSorts,
+                                    blockID,
+                                }], [{
+                                    action: "setAttrViewSorts",
+                                    avID: data.id,
+                                    data: oldSorts,
+                                    blockID,
+                                }]);
+                            }
+
+                            const filterExist = data.view.filters.find((filter) => filter.column === options.colId);
+                            if (filterExist) {
+                                const oldFilters = JSON.parse(JSON.stringify(data.view.filters));
+                                const newFilters = data.view.filters.filter((filter) => filter.column !== options.colId);
+
+                                transaction(options.protyle, [{
+                                    action: "setAttrViewFilters",
+                                    avID: data.id,
+                                    data: newFilters,
+                                    blockID
+                                }], [{
+                                    action: "setAttrViewFilters",
+                                    avID: data.id,
+                                    data: oldFilters,
+                                    blockID
+                                }]);
+                            }
+                        }
                     }
-                    avPanelElement.remove();
+                    menuElement.innerHTML = getEditHTML({
+                        protyle: options.protyle,
+                        data,
+                        colId: options.colId,
+                        isCustomAttr
+                    });
+                    bindEditEvent({protyle: options.protyle, data, menuElement, isCustomAttr, blockID});
+                    setPosition(menuElement, tabRect.right - menuElement.clientWidth, tabRect.bottom, tabRect.height);
                     event.preventDefault();
                     event.stopPropagation();
                     break;
@@ -891,7 +938,7 @@ export const openMenuPanel = (options: {
                     event.stopPropagation();
                     break;
                 } else if (type === "goSearchAV") {
-                    openSearchAV(avID, target);
+                    openSearchAV(avID, target, undefined, false);
                     event.preventDefault();
                     event.stopPropagation();
                     break;
@@ -918,7 +965,11 @@ export const openMenuPanel = (options: {
                     event.stopPropagation();
                     break;
                 } else if (type === "goSearchRollupCalc") {
-                    openCalcMenu(options.protyle, target, {data, colId: options.colId, blockID});
+                    openCalcMenu(options.protyle, target, {
+                        data,
+                        colId: options.colId || menuElement.querySelector(".b3-menu__item").getAttribute("data-col-id"),
+                        blockID
+                    });
                     event.preventDefault();
                     event.stopPropagation();
                     break;
@@ -967,7 +1018,7 @@ export const openMenuPanel = (options: {
                             colId,
                             isCustomAttr
                         });
-                        bindEditEvent({protyle: options.protyle, data, menuElement, isCustomAttr});
+                        bindEditEvent({protyle: options.protyle, data, menuElement, isCustomAttr, blockID});
                     } else {
                         menuElement.innerHTML = getPropertiesHTML(data.view);
                     }
@@ -999,7 +1050,7 @@ export const openMenuPanel = (options: {
                             colId,
                             isCustomAttr
                         });
-                        bindEditEvent({protyle: options.protyle, data, menuElement, isCustomAttr});
+                        bindEditEvent({protyle: options.protyle, data, menuElement, isCustomAttr, blockID});
                     } else {
                         menuElement.innerHTML = getPropertiesHTML(data.view);
                     }
@@ -1008,55 +1059,59 @@ export const openMenuPanel = (options: {
                     event.stopPropagation();
                     break;
                 } else if (type === "duplicateCol") {
-                    const colId = menuElement.querySelector(".b3-menu__item").getAttribute("data-col-id");
-                    const colData = data.view.columns.find((item: IAVColumn) => item.id === colId);
                     duplicateCol({
                         blockElement: options.blockElement,
                         protyle: options.protyle,
-                        type: colData.type,
-                        avID,
-                        colId,
-                        icon: colData.icon,
-                        newValue: colData.name,
+                        colId: menuElement.querySelector(".b3-menu__item").getAttribute("data-col-id"),
+                        data,
                         viewID: data.viewID,
                     });
-                    avPanelElement.remove();
                     event.preventDefault();
                     event.stopPropagation();
                     break;
                 } else if (type === "removeCol") {
-                    const colId = menuElement.querySelector(".b3-menu__item").getAttribute("data-col-id");
-                    let previousID: string;
-                    const colData = data.view.columns.find((item: IAVColumn, index) => {
-                        if (item.id === colId) {
-                            previousID = data.view.columns[index - 1]?.id;
-                            return true;
+                    confirmDialog(isCustomAttr ? window.siyuan.languages.deleteOpConfirm : "", isCustomAttr ? window.siyuan.languages.removeCol.replace("${x}", menuElement.querySelector("input").value) : "", () => {
+                        const colId = menuElement.querySelector(".b3-menu__item").getAttribute("data-col-id");
+                        let previousID: string;
+                        const colData = data.view.columns.find((item: IAVColumn, index) => {
+                            if (item.id === colId) {
+                                previousID = data.view.columns[index - 1]?.id;
+                                data.view.columns.splice(index, 1);
+                                return true;
+                            }
+                        });
+                        const newUpdated = dayjs().format("YYYYMMDDHHmmss");
+                        transaction(options.protyle, [{
+                            action: "removeAttrViewCol",
+                            id: colId,
+                            avID,
+                        }, {
+                            action: "doUpdateUpdated",
+                            id: blockID,
+                            data: newUpdated,
+                        }], [{
+                            action: "addAttrViewCol",
+                            name: colData.name,
+                            avID,
+                            type: colData.type,
+                            id: colId,
+                            previousID
+                        }, {
+                            action: "doUpdateUpdated",
+                            id: blockID,
+                            data: options.blockElement.getAttribute("updated")
+                        }]);
+                        removeAttrViewColAnimation(options.blockElement, colId);
+                        options.blockElement.setAttribute("updated", newUpdated);
+
+                        if (isCustomAttr) {
+                            avPanelElement.remove();
+                        } else {
+                            tabRect = options.blockElement.querySelector(".av__views").getBoundingClientRect();
+                            menuElement.innerHTML = getPropertiesHTML(data.view);
+                            setPosition(menuElement, tabRect.right - menuElement.clientWidth, tabRect.bottom, tabRect.height);
                         }
                     });
-                    const newUpdated = dayjs().format("YYYYMMDDHHmmss");
-                    transaction(options.protyle, [{
-                        action: "removeAttrViewCol",
-                        id: colId,
-                        avID,
-                    }, {
-                        action: "doUpdateUpdated",
-                        id: blockID,
-                        data: newUpdated,
-                    }], [{
-                        action: "addAttrViewCol",
-                        name: colData.name,
-                        avID,
-                        type: colData.type,
-                        id: colId,
-                        previousID
-                    }, {
-                        action: "doUpdateUpdated",
-                        id: blockID,
-                        data: options.blockElement.getAttribute("updated")
-                    }]);
-                    removeAttrViewColAnimation(options.blockElement, colId);
-                    options.blockElement.setAttribute("updated", newUpdated);
-                    avPanelElement.remove();
                     event.preventDefault();
                     event.stopPropagation();
                     break;
@@ -1071,18 +1126,22 @@ export const openMenuPanel = (options: {
                     event.stopPropagation();
                     break;
                 } else if (type === "addColOptionOrCell") {
-                    addColOptionOrCell(options.protyle, data, options.cellElements, target, menuElement, options.blockElement);
+                    if (target.querySelector(".b3-menu__checked")) {
+                        removeCellOption(options.protyle, options.cellElements, menuElement.querySelector(`.b3-chips .b3-chip[data-content="${escapeAttr(target.dataset.name)}"]`), options.blockElement);
+                    } else {
+                        addColOptionOrCell(options.protyle, data, options.cellElements, target, menuElement, options.blockElement);
+                    }
                     window.siyuan.menus.menu.remove();
                     event.preventDefault();
                     event.stopPropagation();
                     break;
                 } else if (type === "removeCellOption") {
-                    removeCellOption(options.protyle, data, options.cellElements, target.parentElement, options.blockElement);
+                    removeCellOption(options.protyle, options.cellElements, target.parentElement, options.blockElement);
                     event.preventDefault();
                     event.stopPropagation();
                     break;
                 } else if (type === "addAssetLink") {
-                    addAssetLink(options.protyle, data, options.cellElements, target, options.blockElement);
+                    addAssetLink(options.protyle, options.cellElements, target, options.blockElement);
                     event.preventDefault();
                     event.stopPropagation();
                     break;
@@ -1110,10 +1169,8 @@ export const openMenuPanel = (options: {
                         }
                         updateAssetCell({
                             protyle: options.protyle,
-                            data,
                             cellElements: options.cellElements,
-                            type: "addUpdate",
-                            addUpdateValue: [value],
+                            addValue: [value],
                             blockElement: options.blockElement
                         });
                         window.siyuan.menus.menu.remove();
@@ -1147,7 +1204,16 @@ export const openMenuPanel = (options: {
                     event.stopPropagation();
                     break;
                 } else if (type === "editAssetItem") {
-                    editAssetItem(options.protyle, data, options.cellElements, target.parentElement, options.blockElement);
+                    editAssetItem({
+                        protyle: options.protyle,
+                        cellElements: options.cellElements,
+                        blockElement: options.blockElement,
+                        content: target.parentElement.dataset.content,
+                        type: target.parentElement.dataset.type as "image" | "file",
+                        name: target.parentElement.dataset.name,
+                        index: parseInt(target.parentElement.dataset.index),
+                        rect: target.parentElement.getBoundingClientRect()
+                    });
                     event.preventDefault();
                     event.stopPropagation();
                     break;
@@ -1202,35 +1268,39 @@ export const openMenuPanel = (options: {
                     event.stopPropagation();
                     break;
                 }
+                // 有错误日志，没找到重现步骤，需先判断一下
+                if (!target || !target.parentElement) {
+                    break;
+                }
                 target = target.parentElement;
             }
         });
     });
 };
 
-const getPropertiesHTML = (data: IAVTable) => {
+export const getPropertiesHTML = (data: IAVTable) => {
     let showHTML = "";
     let hideHTML = "";
     data.columns.forEach((item: IAVColumn) => {
         if (item.hidden) {
-            hideHTML += `<button class="b3-menu__item" draggable="true" data-id="${item.id}">
+            hideHTML += `<button class="b3-menu__item" data-type="editCol" draggable="true" data-id="${item.id}">
     <svg class="b3-menu__icon fn__grab"><use xlink:href="#iconDrag"></use></svg>
     <div class="b3-menu__label fn__flex">
         ${item.icon ? unicode2Emoji(item.icon, "b3-menu__icon", true) : `<svg class="b3-menu__icon"><use xlink:href="#${getColIconByType(item.type)}"></use></svg>`}
-        ${item.name}
+        ${item.name || "&nbsp;"}
     </div>
     <svg class="b3-menu__action" data-type="showCol"><use xlink:href="#iconEye"></use></svg>
-    <svg class="b3-menu__action" data-type="editCol"><use xlink:href="#iconEdit"></use></svg>
+    <svg class="b3-menu__icon b3-menu__icon--small"><use xlink:href="#iconRight"></use></svg>
 </button>`;
         } else {
-            showHTML += `<button class="b3-menu__item" draggable="true" data-id="${item.id}">
+            showHTML += `<button class="b3-menu__item" data-type="editCol" draggable="true" data-id="${item.id}">
     <svg class="b3-menu__icon fn__grab"><use xlink:href="#iconDrag"></use></svg>
     <div class="b3-menu__label fn__flex">
         ${item.icon ? unicode2Emoji(item.icon, "b3-menu__icon", true) : `<svg class="b3-menu__icon"><use xlink:href="#${getColIconByType(item.type)}"></use></svg>`}
-        ${item.name}
+        ${item.name || "&nbsp;"}
     </div>
     <svg class="b3-menu__action${item.type === "block" ? " fn__none" : ""}" data-type="hideCol"><use xlink:href="#iconEyeoff"></use></svg>
-    <svg class="b3-menu__action${item.type === "block" ? " fn__none" : ""}" data-type="editCol"><use xlink:href="#iconEdit"></use></svg>
+    <svg class="b3-menu__icon b3-menu__icon--small"><use xlink:href="#iconRight"></use></svg>
 </button>`;
         }
     });

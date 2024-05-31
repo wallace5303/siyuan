@@ -49,7 +49,7 @@ const removeTopElement = (updateElement: Element, protyle: IProtyle) => {
     }
 };
 
-// 用于执行操作，外加处理当前编辑器中引用块、嵌入块的更新
+// 用于执行操作，外加处理当前编辑器中块引用、嵌入块的更新
 const promiseTransaction = () => {
     if (window.siyuan.transactions.length === 0) {
         return;
@@ -122,6 +122,9 @@ const promiseTransaction = () => {
                             item.remove();
                         }
                     });
+                    if (protyle.disabled) {
+                        disabledProtyle(protyle);
+                    }
                     processRender(protyle.wysiwyg.element);
                     highlightRender(protyle.wysiwyg.element);
                     avRender(protyle.wysiwyg.element, protyle);
@@ -169,7 +172,7 @@ const promiseTransaction = () => {
                 }
                 // 当前编辑器中更新嵌入块
                 updateEmbed(protyle, operation);
-                // 更新引用块
+                // 更新块引用
                 updateRef(protyle, operation.id);
                 return;
             }
@@ -188,6 +191,7 @@ const promiseTransaction = () => {
                         blockRender(protyle, item);
                     }
                 });
+                hideElements(["gutter"], protyle);
                 return;
             }
             if (operation.action === "move") {
@@ -289,10 +293,25 @@ const promiseTransaction = () => {
                 //         blockRender(protyle, item);
                 //     }
                 // });
-                // 更新引用块
+                // 更新块引用
                 updateRef(protyle, operation.id);
             }
         });
+
+        // 删除仅有的折叠标题后展开内容为空
+        if (protyle.wysiwyg.element.childElementCount === 0) {
+            const newID = Lute.NewNodeID();
+            const emptyElement = genEmptyElement(false, true, newID);
+            protyle.wysiwyg.element.insertAdjacentElement("afterbegin", emptyElement);
+            transaction(protyle, [{
+                action: "insert",
+                data: emptyElement.outerHTML,
+                id: newID,
+                parentID: protyle.block.parentID
+            }]);
+            // 不能撤销，否则就无限循环了
+            focusByWbr(emptyElement, range);
+        }
     });
 };
 
@@ -367,7 +386,7 @@ const updateBlock = (updateElements: Element[], protyle: IProtyle, operation: IO
     blockRender(protyle, updateElements.length === 1 ? updateElements[0] : protyle.wysiwyg.element);
     // 更新 ws 嵌入块
     updateEmbed(protyle, operation);
-    // 更新 ws 引用块
+    // 更新 ws 块引用
     updateRef(protyle, operation.id);
 };
 
@@ -402,6 +421,9 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
             }
         });
         if (operation.retData) {
+            if (protyle.disabled) {
+                disabledProtyle(protyle);
+            }
             processRender(protyle.wysiwyg.element);
             highlightRender(protyle.wysiwyg.element);
             avRender(protyle.wysiwyg.element, protyle);
@@ -469,7 +491,7 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
         } else { // updateElements 没有包含嵌入块，在悬浮层编辑嵌入块时，嵌入块也需要更新
             // 更新 ws 嵌入块
             updateEmbed(protyle, operation);
-            // 更新 ws 引用块
+            // 更新 ws 块引用
             updateRef(protyle, operation.id);
         }
         return;
@@ -565,7 +587,13 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
                 if (key === Constants.CUSTOM_RIFF_DECKS && data.new[Constants.CUSTOM_RIFF_DECKS] !== data.old[Constants.CUSTOM_RIFF_DECKS]) {
                     item.style.animation = "addCard 450ms linear";
                     setTimeout(() => {
-                        item.style.animation = "";
+                        if (item.parentElement) {
+                            item.style.animation = "";
+                        } else {
+                            protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${operation.id}"]`).forEach((realItem: HTMLElement) => {
+                                realItem.style.animation = "";
+                            });
+                        }
                     }, 450);
                 }
             });
@@ -648,6 +676,7 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
                         return true;
                     }
                 });
+                document.querySelector("wbr")?.remove();
             } else {
                 focusByWbr(protyle.wysiwyg.element, range);
             }
@@ -720,22 +749,32 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
                 wbrElement.remove();
             }
         });
-        // 更新 ws 引用块
+        // 更新 ws 块引用
         updateRef(protyle, operation.id);
-    } else if (operation.action === "append") {
-        reloadProtyle(protyle, false);
-    } else if (["addAttrViewCol", "insertAttrViewBlock", "updateAttrViewCol", "updateAttrViewColOptions",
+        return;
+    }
+    if (operation.action === "append") {
+        // 目前只有移动块的时候会调用，反连面板就自己点击刷新处理。
+        if (!protyle.options.backlinkData) {
+            reloadProtyle(protyle, false);
+        }
+        return;
+    }
+    if (["addAttrViewCol", "insertAttrViewBlock", "updateAttrViewCol", "updateAttrViewColOptions",
         "updateAttrViewColOption", "updateAttrViewCell", "sortAttrViewRow", "sortAttrViewCol", "setAttrViewColHidden",
         "setAttrViewColWrap", "setAttrViewColWidth", "removeAttrViewColOption", "setAttrViewName", "setAttrViewFilters",
         "setAttrViewSorts", "setAttrViewColCalc", "removeAttrViewCol", "updateAttrViewColNumberFormat", "removeAttrViewBlock",
         "replaceAttrViewBlock", "updateAttrViewColTemplate", "setAttrViewColPin", "addAttrViewView", "setAttrViewColIcon",
         "removeAttrViewView", "setAttrViewViewName", "setAttrViewViewIcon", "duplicateAttrViewView", "sortAttrViewView",
-        "updateAttrViewColRelation", "setAttrViewPageSize", "updateAttrViewColRollup"].includes(operation.action)) {
+        "updateAttrViewColRelation", "setAttrViewPageSize", "updateAttrViewColRollup", "sortAttrViewKey"].includes(operation.action)) {
         refreshAV(protyle, operation);
-    } else if (operation.action === "doUpdateUpdated") {
+        return;
+    }
+    if (operation.action === "doUpdateUpdated") {
         updateElements.forEach(item => {
             item.setAttribute("updated", operation.data);
         });
+        return;
     }
 };
 
@@ -856,6 +895,7 @@ export const turnsIntoTransaction = (options: {
     type: TTurnInto,
     level?: number,
     isContinue?: boolean,
+    range?: Range
 }) => {
     let selectsElement: Element[] = options.selectsElement;
     let range: Range;
@@ -977,8 +1017,8 @@ export const turnsIntoTransaction = (options: {
     highlightRender(options.protyle.wysiwyg.element);
     avRender(options.protyle.wysiwyg.element, options.protyle);
     blockRender(options.protyle, options.protyle.wysiwyg.element);
-    if (range) {
-        focusByWbr(options.protyle.wysiwyg.element, range);
+    if (range || options.range) {
+        focusByWbr(options.protyle.wysiwyg.element, range || options.range);
     } else {
         focusBlock(options.protyle.wysiwyg.element.querySelector(`[data-node-id="${selectsElement[0].getAttribute("data-node-id")}"]`));
     }
@@ -1008,7 +1048,7 @@ export const transaction = (protyle: IProtyle, doOperations: IOperation[], undoO
         return;
     }
     if (!protyle) {
-        // 文档书中点开属性->数据库后的变更操作
+        // 文档树中点开属性->数据库后的变更操作 & 文档树添加到数据库
         fetchPost("/api/transactions", {
             session: Constants.SIYUAN_APPID,
             app: Constants.SIYUAN_APPID,

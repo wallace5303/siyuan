@@ -4,13 +4,16 @@ import {upDownHint} from "../../../util/upDownHint";
 import {fetchPost} from "../../../util/fetch";
 import {escapeGreat, escapeHtml} from "../../../util/escape";
 import {transaction} from "../../wysiwyg/transaction";
-import {genCellValueByElement, updateCellsValue} from "./cell";
+import {updateCellsValue} from "./cell";
 import {updateAttrViewCellAnimation} from "./action";
 import {focusBlock} from "../../util/selection";
 import {setPosition} from "../../../util/setPosition";
 
-const genSearchList = (element: Element, keyword: string, avId: string, cb?: () => void) => {
-    fetchPost("/api/av/searchAttributeView", {keyword}, (response) => {
+const genSearchList = (element: Element, keyword: string, avId?: string, excludes = true, cb?: () => void) => {
+    fetchPost("/api/av/searchAttributeView", {
+        keyword,
+        excludes: (excludes && avId) ? [avId] : undefined
+    }, (response) => {
         let html = "";
         response.data.results.forEach((item: {
             avID: string
@@ -45,7 +48,7 @@ const setDatabase = (avId: string, element: HTMLElement, item: HTMLElement) => {
     }
 };
 
-export const openSearchAV = (avId: string, target: HTMLElement, cb?: (element: HTMLElement) => void) => {
+export const openSearchAV = (avId: string, target: HTMLElement, cb?: (element: HTMLElement) => void, excludes = true) => {
     window.siyuan.menus.menu.remove();
     const menu = new Menu();
     menu.addItem({
@@ -86,10 +89,10 @@ export const openSearchAV = (avId: string, target: HTMLElement, cb?: (element: H
                 if (event.isComposing) {
                     return;
                 }
-                genSearchList(listElement, inputElement.value, avId);
+                genSearchList(listElement, inputElement.value, avId, excludes);
             });
             inputElement.addEventListener("compositionend", () => {
-                genSearchList(listElement, inputElement.value, avId);
+                genSearchList(listElement, inputElement.value, avId, excludes);
             });
             element.lastElementChild.addEventListener("click", (event) => {
                 const listItemElement = hasClosestByClassName(event.target as HTMLElement, "b3-list-item");
@@ -103,7 +106,7 @@ export const openSearchAV = (avId: string, target: HTMLElement, cb?: (element: H
                     window.siyuan.menus.menu.remove();
                 }
             });
-            genSearchList(listElement, "", avId, () => {
+            genSearchList(listElement, "", avId, excludes, () => {
                 const rect = target.getBoundingClientRect();
                 menu.open({
                     x: rect.left,
@@ -146,7 +149,7 @@ export const updateRelation = (options: {
         avID: options.avID,
         keyID: colId,
         id: newAVId || colData.relation.avID,
-        backRelationKeyID: colData.relation.avID === newAVId ? colData.relation.backKeyID : Lute.NewNodeID(),
+        backRelationKeyID: colData.relation.avID === newAVId ? (colData.relation.backKeyID || Lute.NewNodeID()) : Lute.NewNodeID(),
         isTwoWay: (options.avElement.querySelector(".b3-switch") as HTMLInputElement).checked,
         name: inputElement.value,
         format: colNewName
@@ -171,7 +174,7 @@ export const toggleUpdateRelationBtn = (menuItemsElement: HTMLElement, avId: str
     const switchElement = switchItemElement.querySelector(".b3-switch") as HTMLInputElement;
     const inputItemElement = switchItemElement.nextElementSibling;
     const btnElement = inputItemElement.nextElementSibling;
-    const oldValue = JSON.parse(searchElement.dataset.oldValue) as IAVCellRelationValue;
+    const oldValue = JSON.parse(searchElement.dataset.oldValue) as IAVColumnRelation;
     if (oldValue.avID) {
         const inputElement = inputItemElement.querySelector("input") as HTMLInputElement;
         if (resetData) {
@@ -183,16 +186,10 @@ export const toggleUpdateRelationBtn = (menuItemsElement: HTMLElement, avId: str
                 switchElement.checked = oldValue.isTwoWay;
             }
         }
-        if (searchElement.dataset.avId === avId && oldValue.avID === avId && oldValue.isTwoWay) {
-            switchItemElement.classList.add("fn__none");
-            inputItemElement.classList.add("fn__none");
+        if (switchElement.checked) {
+            inputItemElement.classList.remove("fn__none");
         } else {
-            switchItemElement.classList.remove("fn__none");
-            if (switchElement.checked) {
-                inputItemElement.classList.remove("fn__none");
-            } else {
-                inputItemElement.classList.add("fn__none");
-            }
+            inputItemElement.classList.add("fn__none");
         }
         if ((searchElement.dataset.avId && oldValue.avID !== searchElement.dataset.avId) || oldValue.isTwoWay !== switchElement.checked || inputElement.dataset.oldValue !== inputElement.value) {
             btnElement.classList.remove("fn__none");
@@ -200,7 +197,6 @@ export const toggleUpdateRelationBtn = (menuItemsElement: HTMLElement, avId: str
             btnElement.classList.add("fn__none");
         }
     } else if (searchElement.dataset.avId) {
-        switchItemElement.classList.remove("fn__none");
         if (switchElement.checked) {
             inputItemElement.classList.remove("fn__none");
         } else {
@@ -240,11 +236,11 @@ const filterItem = (menuElement: Element, cellElement: HTMLElement, keyword: str
         const hasIds: string[] = [];
         cellElement.querySelectorAll("span").forEach((item) => {
             hasIds.push(item.dataset.id);
-            selectHTML += `<button data-id="${item.dataset.id}" data-type="setRelationCell" class="b3-menu__item${item.textContent.indexOf(keyword) > -1 ? "" : " fn__none"}" draggable="true">${genSelectItemHTML("selected", item.dataset.id, !item.classList.contains("av__celltext--ref"), item.textContent || "Untitled")}</button>`;
+            selectHTML += `<button data-id="${item.dataset.id}" data-type="setRelationCell" class="b3-menu__item${item.textContent.indexOf(keyword) > -1 ? "" : " fn__none"}" draggable="true">${genSelectItemHTML("selected", item.dataset.id, !item.classList.contains("av__celltext--ref"), item.textContent || window.siyuan.languages.untitled)}</button>`;
         });
         cells.forEach((item) => {
             if (!hasIds.includes(item.block.id)) {
-                html += genSelectItemHTML("unselect", item.block.id, item.isDetached, item.block.content || "Untitled");
+                html += genSelectItemHTML("unselect", item.block.id, item.isDetached, item.block.content || window.siyuan.languages.untitled);
             }
         });
         menuElement.querySelector(".b3-menu__items").innerHTML = `${selectHTML || genSelectItemHTML("empty")}
@@ -270,14 +266,13 @@ export const bindRelationEvent = (options: {
         const hasIds: string[] = [];
         options.cellElements[0].querySelectorAll("span").forEach((item) => {
             hasIds.push(item.dataset.id);
-            selectHTML += `<button data-id="${item.dataset.id}" data-type="setRelationCell" class="b3-menu__item" draggable="true">${genSelectItemHTML("selected", item.dataset.id, !item.classList.contains("av__celltext--ref"), item.textContent || "Untitled")}</button>`;
+            selectHTML += `<button data-id="${item.dataset.id}" data-type="setRelationCell" class="b3-menu__item" draggable="true">${genSelectItemHTML("selected", item.dataset.id, !item.classList.contains("av__celltext--ref"), item.textContent || window.siyuan.languages.untitled)}</button>`;
         });
         cells.forEach((item) => {
             if (!hasIds.includes(item.block.id)) {
-                html += genSelectItemHTML("unselect", item.block.id, item.isDetached, item.block.content || "Untitled");
+                html += genSelectItemHTML("unselect", item.block.id, item.isDetached, item.block.content || window.siyuan.languages.untitled);
             }
         });
-        options.menuElement.querySelector(".b3-menu__label").innerHTML = response.data.name;
         options.menuElement.querySelector(".b3-menu__items").innerHTML = `${selectHTML || genSelectItemHTML("empty")}
 <button class="b3-menu__separator"></button>
 ${html || genSelectItemHTML("empty")}`;
@@ -286,9 +281,11 @@ ${html || genSelectItemHTML("empty")}`;
         options.menuElement.querySelector(".b3-menu__items .b3-menu__item:not(.fn__none)").classList.add("b3-menu__item--current");
         const inputElement = options.menuElement.querySelector("input");
         inputElement.focus();
+        const databaseName = inputElement.parentElement.querySelector(".popover__block");
+        databaseName.innerHTML = response.data.name;
+        databaseName.setAttribute("data-id", response.data.blockIDs[0]);
         const listElement = options.menuElement.querySelector(".b3-menu__items");
         inputElement.addEventListener("keydown", (event) => {
-            event.stopPropagation();
             if (event.isComposing) {
                 return;
             }
@@ -319,7 +316,7 @@ ${html || genSelectItemHTML("empty")}`;
 };
 
 export const getRelationHTML = (data: IAV, cellElements?: HTMLElement[]) => {
-    let colRelationData: IAVCellRelationValue;
+    let colRelationData: IAVColumnRelation;
     data.view.columns.find(item => {
         if (item.id === cellElements[0].dataset.colId) {
             colRelationData = item.relation;
@@ -328,9 +325,10 @@ export const getRelationHTML = (data: IAV, cellElements?: HTMLElement[]) => {
     });
     if (colRelationData && colRelationData.avID) {
         return `<div data-av-id="${colRelationData.avID}" class="fn__flex-column">
-<div class="b3-menu__item fn__flex-column" data-type="nobg">
-    <div class="b3-menu__label">&nbsp;</div>
-    <input class="b3-text-field fn__flex-shrink"/>
+<div class="b3-menu__item" data-type="nobg">
+    <input class="b3-text-field fn__flex-1"/>
+    <span class="fn__space"></span>
+    <span style="color: var(--b3-protyle-inline-blockref-color);" data-id="" class="popover__block fn__pointer"></span>
 </div>
 <div class="fn__hr"></div>
 <div class="b3-menu__items">
@@ -346,14 +344,30 @@ export const setRelationCell = (protyle: IProtyle, nodeElement: HTMLElement, tar
     if (!menuElement) {
         return;
     }
+    if (menuElement.querySelector(".dragover__bottom, .dragover__top")) {
+        return;
+    }
     const rowElement = hasClosestByClassName(cellElements[0], "av__row");
     if (!rowElement) {
         return;
     }
     if (!nodeElement.contains(cellElements[0])) {
-        cellElements[0] = nodeElement.querySelector(`.av__row[data-id="${rowElement.dataset.id}"] .av__cell[data-col-id="${cellElements[0].dataset.colId}"]`) as HTMLElement;
+        cellElements[0] = (nodeElement.querySelector(`.av__row[data-id="${rowElement.dataset.id}"] .av__cell[data-col-id="${cellElements[0].dataset.colId}"]`) ||
+            nodeElement.querySelector(`.fn__flex-1[data-col-id="${cellElements[0].dataset.colId}"]`) ) as HTMLElement;
     }
-    const newValue = genCellValueByElement("relation", cellElements[0]).relation;
+    const newValue: IAVCellRelationValue = {blockIDs: [], contents: []};
+    menuElement.querySelectorAll('[draggable="true"]').forEach(item => {
+        const id = item.getAttribute("data-id");
+        newValue.blockIDs.push(id);
+        newValue.contents.push({
+            type: "block",
+            block: {
+                id,
+                content: item.querySelector(".b3-menu__label").textContent
+            },
+            isDetached: !item.querySelector(".popover__block")
+        });
+    });
     if (target.classList.contains("b3-menu__item")) {
         const targetId = target.getAttribute("data-id");
         const separatorElement = menuElement.querySelector(".b3-menu__separator");

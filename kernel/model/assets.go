@@ -32,12 +32,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/88250/go-humanize"
 	"github.com/88250/gulu"
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/editor"
 	"github.com/88250/lute/html"
 	"github.com/88250/lute/parse"
-	"github.com/dustin/go-humanize"
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/imroc/req/v3"
 	"github.com/siyuan-note/filelock"
@@ -103,6 +103,14 @@ func NetImg2LocalAssets(rootID, originalURL string) (err error) {
 		}
 		if ast.NodeImage == n.Type {
 			linkDest := n.ChildByType(ast.NodeLinkDest)
+			linkText := n.ChildByType(ast.NodeLinkText)
+			if nil == linkText {
+				linkText = &ast.Node{Type: ast.NodeLinkText, Tokens: []byte("image")}
+				if openBracket := n.ChildByType(ast.NodeOpenBracket); nil != openBracket {
+					openBracket.InsertAfter(linkText)
+				}
+			}
+
 			dest := linkDest.Tokens
 			if util.IsAssetLinkDest(dest) {
 				return ast.WalkSkipChildren
@@ -122,8 +130,11 @@ func NetImg2LocalAssets(rootID, originalURL string) (err error) {
 				}
 
 				name := filepath.Base(u)
-				name = util.FilterFileName(name)
+				name = util.FilterUploadFileName(name)
 				name = util.TruncateLenFileName(name)
+				if 1 > len(bytes.TrimSpace(linkText.Tokens)) {
+					linkText.Tokens = []byte(name)
+				}
 				name = "net-img-" + name
 				name = util.AssetName(name)
 				writePath := filepath.Join(assetsDirPath, name)
@@ -137,7 +148,12 @@ func NetImg2LocalAssets(rootID, originalURL string) (err error) {
 				return ast.WalkSkipChildren
 			}
 
-			if bytes.HasPrefix(bytes.ToLower(dest), []byte("https://")) || bytes.HasPrefix(bytes.ToLower(dest), []byte("http://")) {
+			if bytes.HasPrefix(bytes.ToLower(dest), []byte("https://")) || bytes.HasPrefix(bytes.ToLower(dest), []byte("http://")) || bytes.HasPrefix(dest, []byte("//")) {
+				if bytes.HasPrefix(dest, []byte("//")) {
+					// `Convert network images to local` supports `//` https://github.com/siyuan-note/siyuan/issues/10598
+					dest = append([]byte("https:"), dest...)
+				}
+
 				u := string(dest)
 				if strings.Contains(u, "qpic.cn") {
 					// 改进 `网络图片转换为本地图片` 微信图片拉取 https://github.com/siyuan-note/siyuan/issues/5052
@@ -198,8 +214,11 @@ func NetImg2LocalAssets(rootID, originalURL string) (err error) {
 					}
 				}
 				name = strings.TrimSuffix(name, ext)
-				name = util.FilterFileName(name)
+				name = util.FilterUploadFileName(name)
 				name = util.TruncateLenFileName(name)
+				if 1 > len(bytes.TrimSpace(linkText.Tokens)) {
+					linkText.Tokens = []byte(name)
+				}
 				name = "net-img-" + name + "-" + ast.NewNodeID() + ext
 				writePath := filepath.Join(assetsDirPath, name)
 				if err = filelock.WriteFile(writePath, data); nil != err {
@@ -216,7 +235,7 @@ func NetImg2LocalAssets(rootID, originalURL string) (err error) {
 	})
 	if 0 < files {
 		util.PushUpdateMsg(msgId, Conf.Language(113), 7000)
-		if err = writeJSONQueue(tree); nil != err {
+		if err = writeTreeUpsertQueue(tree); nil != err {
 			return
 		}
 		util.PushUpdateMsg(msgId, fmt.Sprintf(Conf.Language(120), files), 5000)
@@ -285,7 +304,7 @@ func NetAssets2LocalAssets(rootID string) (err error) {
 			}
 
 			name := filepath.Base(u)
-			name = util.FilterFileName(name)
+			name = util.FilterUploadFileName(name)
 			name = util.TruncateLenFileName(name)
 			name = "network-asset-" + name
 			name = util.AssetName(name)
@@ -306,7 +325,12 @@ func NetAssets2LocalAssets(rootID string) (err error) {
 			return ast.WalkContinue
 		}
 
-		if bytes.HasPrefix(bytes.ToLower(dest), []byte("https://")) || bytes.HasPrefix(bytes.ToLower(dest), []byte("http://")) {
+		if bytes.HasPrefix(bytes.ToLower(dest), []byte("https://")) || bytes.HasPrefix(bytes.ToLower(dest), []byte("http://")) || bytes.HasPrefix(dest, []byte("//")) {
+			if bytes.HasPrefix(dest, []byte("//")) {
+				// `Convert network images to local` supports `//` https://github.com/siyuan-note/siyuan/issues/10598
+				dest = append([]byte("https:"), dest...)
+			}
+
 			u := string(dest)
 			if strings.Contains(u, "qpic.cn") {
 				// 改进 `网络图片转换为本地图片` 微信图片拉取 https://github.com/siyuan-note/siyuan/issues/5052
@@ -375,7 +399,7 @@ func NetAssets2LocalAssets(rootID string) (err error) {
 				}
 			}
 			name = strings.TrimSuffix(name, ext)
-			name = util.FilterFileName(name)
+			name = util.FilterUploadFileName(name)
 			name = util.TruncateLenFileName(name)
 			name = "network-asset-" + name + "-" + ast.NewNodeID() + ext
 			writePath := filepath.Join(assetsDirPath, name)
@@ -398,7 +422,7 @@ func NetAssets2LocalAssets(rootID string) (err error) {
 
 	if 0 < files {
 		util.PushUpdateMsg(msgId, Conf.Language(113), 7000)
-		if err = writeJSONQueue(tree); nil != err {
+		if err = writeTreeUpsertQueue(tree); nil != err {
 			return
 		}
 		util.PushUpdateMsg(msgId, fmt.Sprintf(Conf.Language(120), files), 5000)
@@ -524,11 +548,10 @@ func UploadAssets2Cloud(rootID string) (count int, err error) {
 	embedAssets := assetsLinkDestsInQueryEmbedNodes(tree)
 	assets = append(assets, embedAssets...)
 	assets = gulu.Str.RemoveDuplicatedElem(assets)
-	err = uploadAssets2Cloud(assets, bizTypeUploadAssets)
+	count, err = uploadAssets2Cloud(assets, bizTypeUploadAssets)
 	if nil != err {
 		return
 	}
-	count = len(assets)
 	return
 }
 
@@ -538,7 +561,7 @@ const (
 )
 
 // uploadAssets2Cloud 将资源文件上传到云端图床。
-func uploadAssets2Cloud(assetPaths []string, bizType string) (err error) {
+func uploadAssets2Cloud(assetPaths []string, bizType string) (count int, err error) {
 	var uploadAbsAssets []string
 	for _, assetPath := range assetPaths {
 		var absPath string
@@ -583,16 +606,22 @@ func uploadAssets2Cloud(assetPaths []string, bizType string) (err error) {
 		metaType = "4"
 	}
 
+	pushErrMsgCount := 0
 	var completedUploadAssets []string
 	for _, absAsset := range uploadAbsAssets {
 		fi, statErr := os.Stat(absAsset)
 		if nil != statErr {
 			logging.LogErrorf("stat file [%s] failed: %s", absAsset, statErr)
-			return statErr
+			return count, statErr
 		}
 
 		if limitSize < uint64(fi.Size()) {
-			logging.LogWarnf("file [%s] larger than limit size [%s], ignore uploading it", humanize.IBytes(limitSize), absAsset)
+			logging.LogWarnf("file [%s] larger than limit size [%s], ignore uploading it", absAsset, humanize.IBytes(limitSize))
+			if 3 > pushErrMsgCount {
+				msg := fmt.Sprintf(Conf.Language(247), filepath.Base(absAsset), humanize.IBytes(limitSize))
+				util.PushErrMsg(msg, 30000)
+			}
+			pushErrMsgCount++
 			continue
 		}
 
@@ -611,7 +640,7 @@ func uploadAssets2Cloud(assetPaths []string, bizType string) (err error) {
 			Post(util.GetCloudServer() + "/apis/siyuan/upload?ver=" + util.Ver)
 		if nil != reqErr {
 			logging.LogErrorf("upload assets failed: %s", reqErr)
-			return ErrFailedToConnectCloudServer
+			return count, ErrFailedToConnectCloudServer
 		}
 
 		if 401 == resp.StatusCode {
@@ -629,6 +658,7 @@ func uploadAssets2Cloud(assetPaths []string, bizType string) (err error) {
 		relAsset := absAsset[strings.Index(absAsset, "assets/"):]
 		completedUploadAssets = append(completedUploadAssets, relAsset)
 		logging.LogInfof("uploaded asset [%s]", relAsset)
+		count++
 	}
 	util.PushClearMsg(msgId)
 
@@ -773,7 +803,6 @@ func RenameAsset(oldPath, newName string) (err error) {
 					return
 				}
 
-				util.PushEndlessProgress(fmt.Sprintf(Conf.Language(70), filepath.Base(treeAbsPath)))
 				if !bytes.Contains(data, []byte(oldName)) {
 					continue
 				}

@@ -421,8 +421,8 @@ func setAutoLaunch(c *gin.Context) {
 		return
 	}
 
-	autoLaunch := arg["autoLaunch"].(bool)
-	model.Conf.System.AutoLaunch = autoLaunch
+	autoLaunch := int(arg["autoLaunch"].(float64))
+	model.Conf.System.AutoLaunch2 = autoLaunch
 	model.Conf.Save()
 }
 
@@ -490,7 +490,7 @@ func exit(c *gin.Context) {
 		execInstallPkg = int(execInstallPkgArg.(float64))
 	}
 
-	exitCode := model.Close(force, execInstallPkg)
+	exitCode := model.Close(force, true, execInstallPkg)
 	ret.Code = exitCode
 	switch exitCode {
 	case 0:

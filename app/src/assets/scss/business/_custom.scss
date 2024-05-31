@@ -12,6 +12,11 @@
     &:hover {
       background-color: var(--b3-theme-background);
     }
+
+    .av__checkbox {
+      width: 16px;
+      height: 26px;
+    }
   }
 
   &__avheader {
@@ -63,7 +68,6 @@
   }
 
   .b3-text-field--text {
-    cursor: pointer;
     transition: var(--b3-transition);
     min-height: 34px;
     background-color: transparent;

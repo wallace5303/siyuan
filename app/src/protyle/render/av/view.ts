@@ -7,6 +7,9 @@ import {getEditorRange} from "../../util/selection";
 import {Constants} from "../../../constants";
 
 export const openViewMenu = (options: { protyle: IProtyle, blockElement: HTMLElement, element: HTMLElement }) => {
+    if (options.protyle.disabled) {
+        return;
+    }
     const menu = new Menu("av-view");
     if (menu.isOpen) {
         return;
@@ -88,6 +91,7 @@ export const bindViewEvent = (options: {
     protyle: IProtyle,
     data: IAV,
     menuElement: HTMLElement
+    blockElement: Element
 }) => {
     const inputElement = options.menuElement.querySelector('.b3-text-field[data-type="name"]') as HTMLInputElement;
     inputElement.addEventListener("blur", () => {
@@ -117,6 +121,39 @@ export const bindViewEvent = (options: {
         }
     });
     inputElement.select();
+    const toggleTitleElement = options.menuElement.querySelector('.b3-switch[data-type="toggle-view-title"]') as HTMLInputElement;
+    toggleTitleElement.addEventListener("change", () => {
+        const avID = options.blockElement.getAttribute("data-av-id");
+        const blockID = options.blockElement.getAttribute("data-node-id");
+        if (!toggleTitleElement.checked) {
+            // hide
+            transaction(options.protyle, [{
+                action: "hideAttrViewName",
+                avID,
+                blockID,
+                data: true
+            }], [{
+                action: "hideAttrViewName",
+                avID,
+                blockID,
+                data: false
+            }]);
+            options.blockElement.querySelector(".av__title").classList.add("fn__none");
+        } else {
+            transaction(options.protyle, [{
+                action: "hideAttrViewName",
+                avID,
+                blockID,
+                data: false
+            }], [{
+                action: "hideAttrViewName",
+                avID,
+                blockID,
+                data: true
+            }]);
+            options.blockElement.querySelector(".av__title").classList.remove("fn__none");
+        }
+    });
 };
 
 export const getViewHTML = (data: IAVTable) => {
@@ -154,13 +191,12 @@ export const getViewHTML = (data: IAVTable) => {
     <span class="b3-menu__accelerator">${data.pageSize}</span>
     <svg class="b3-menu__icon b3-menu__icon--small"><use xlink:href="#iconRight"></use></svg>
 </button>
-<button class="b3-menu__item">
-    <div class="b3-menu__label fn__flex">
-        <svg class="b3-menu__icon"></svg>
-        <span class="b3-menu__label">${window.siyuan.languages.title}</span>
-    </div>
-    <svg class="b3-menu__action" data-type="toggle-view-title"><use xlink:href="#iconEye${data.hideAttrViewName ? "" : "off"}"></use></svg>
-</button>
+<label class="b3-menu__item">
+    <svg class="b3-menu__icon"></svg>
+    <span class="fn__flex-center">${window.siyuan.languages.showTitle}</span>
+    <span class="fn__space fn__flex-1"></span>
+    <input data-type="toggle-view-title" type="checkbox" class="b3-switch b3-switch--menu" ${data.hideAttrViewName ? "" : "checked"}>
+</label>
 <button class="b3-menu__separator"></button>
 <button class="b3-menu__item" data-type="duplicate-view">
     <svg class="b3-menu__icon">
@@ -190,7 +226,7 @@ export const getSwitcherHTML = (views: IAVView[], viewId: string) => {
     return `<div class="b3-menu__items">
 <button class="b3-menu__item" data-type="av-add">
     <svg class="b3-menu__icon"><use xlink:href="#iconAdd"></use></svg>
-    <span class="b3-menu__label">${window.siyuan.languages.new}</span>
+    <span class="b3-menu__label">${window.siyuan.languages.newView}</span>
 </button>
 <button class="b3-menu__separator"></button>
 ${html}

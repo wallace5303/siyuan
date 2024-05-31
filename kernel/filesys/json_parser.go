@@ -36,6 +36,7 @@ func ParseJSONWithoutFix(jsonData []byte, options *parse.Options) (ret *parse.Tr
 
 	ret = &parse.Tree{Name: "", ID: root.ID, Root: &ast.Node{Type: ast.NodeDocument, ID: root.ID, Spec: root.Spec}, Context: &parse.Context{ParseOption: options}}
 	ret.Root.KramdownIAL = parse.Map2IAL(root.Properties)
+	ret.Root.SetIALAttr("type", "doc")
 	ret.Context.Tip = ret.Root
 	if nil == root.Children {
 		return
@@ -57,6 +58,7 @@ func ParseJSON(jsonData []byte, options *parse.Options) (ret *parse.Tree, needFi
 
 	ret = &parse.Tree{Name: "", ID: root.ID, Root: &ast.Node{Type: ast.NodeDocument, ID: root.ID, Spec: root.Spec}, Context: &parse.Context{ParseOption: options}}
 	ret.Root.KramdownIAL = parse.Map2IAL(root.Properties)
+	ret.Root.SetIALAttr("type", "doc")
 	for _, kv := range ret.Root.KramdownIAL {
 		if strings.Contains(kv[1], "\n") {
 			val := kv[1]
@@ -141,6 +143,21 @@ func genTreeByJSON(node *ast.Node, tree *parse.Tree, idMap *map[string]bool, nee
 			if 1 > len(node.Children) {
 				*needFix = true
 				return // 忽略空查询嵌入块
+			}
+		case ast.NodeCodeBlock:
+			if 4 > len(node.Children) {
+				// https://ld246.com/article/1713689223067
+				existCode := false
+				for _, child := range node.Children {
+					if ast.NodeCodeBlockCode.String() == child.TypeStr {
+						existCode = true
+						break
+					}
+				}
+				if !existCode {
+					*needFix = true
+					return // 忽略空代码块
+				}
 			}
 		}
 

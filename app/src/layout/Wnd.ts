@@ -1,6 +1,7 @@
 import {Layout} from "./index";
 import {genUUID} from "../util/genID";
 import {
+    fixWndFlex1,
     getInstanceById,
     getWndByLayout, JSONToCenter,
     newModelByInitData, pdfIsLoading, saveLayout,
@@ -39,6 +40,8 @@ import {setTitle} from "../dialog/processSystem";
 import {newCenterEmptyTab, resizeTabs} from "./tabUtil";
 import {fullscreen} from "../protyle/breadcrumb/action";
 import {setPadding} from "../protyle/ui/initUI";
+import {setPosition} from "../util/setPosition";
+import {clearOBG} from "./dock/util";
 
 export class Wnd {
     private app: App;
@@ -47,9 +50,9 @@ export class Wnd {
     public element: HTMLElement;
     public headersElement: HTMLElement;
     public children: Tab[] = [];
-    public resize?: TDirection;
+    public resize?: Config.TUILayoutDirection;
 
-    constructor(app: App, resize?: TDirection, parentType?: TLayout) {
+    constructor(app: App, resize?: Config.TUILayoutDirection, parentType?: Config.TUILayoutType) {
         this.id = genUUID();
         this.app = app;
         this.resize = resize;
@@ -312,15 +315,13 @@ export class Wnd {
             const width = rect.width;
             const x = event.clientX - rect.left;
             const y = event.clientY - rect.top;
-            if ((x <= width / 3 && (y <= height / 8 || y >= height * 7 / 8)) ||
-                (x <= width / 8 && (y > height / 8 || y < height * 7 / 8))) {
+            if (x <= width / 8 || (x <= width / 3 && x > width / 8 && y >= height / 8 && y <= height * 7 / 8)) {
                 dragElement.setAttribute("style", "height:100%;width:50%;right:50%;bottom:0;left:0;top:0");
-            } else if ((x > width * 2 / 3 && (y <= height / 8 || y >= height * 7 / 8)) ||
-                (x >= width * 7 / 8 && (y > height / 8 || y < height * 7 / 8))) {
+            } else if (x >= width * 7 / 8 || (x >= width * 2 / 3 && x < width * 7 / 8 && y >= height / 8 && y <= height * 7 / 8)) {
                 dragElement.setAttribute("style", "height:100%;width:50%;right:0;bottom:0;left:50%;top:0");
-            } else if (x > width / 3 && x < width * 2 / 3 && y <= height / 8) {
+            } else if (y <= height / 8) {
                 dragElement.setAttribute("style", "height:50%;width:100%;right:0;bottom:50%;left:0;top:0");
-            } else if (x > width / 3 && x < width * 2 / 3 && y >= height * 7 / 8) {
+            } else if (y >= height * 7 / 8) {
                 dragElement.setAttribute("style", "height:50%;width:100%;right:0;bottom:0;left:0;top:50%");
             } else {
                 dragElement.setAttribute("style", "height:100%;width:100%;right:0;bottom:0;top:0;left:0");
@@ -496,13 +497,7 @@ export class Wnd {
                 setPadding(currentTab.model.editor.protyle);
             }
         } else {
-            updatePanelByEditor({
-                protyle: undefined,
-                focus: false,
-                pushBackStack: false,
-                reload: false,
-                resize,
-            });
+            clearOBG();
         }
         if (isSaveLayout) {
             saveLayout();
@@ -617,6 +612,7 @@ export class Wnd {
                             this.removeTab(item.getAttribute("data-id"));
                             if (element.previousElementSibling || element.nextElementSibling) {
                                 element.remove();
+                                setPosition(window.siyuan.menus.menu.element, rect.left + rect.width - window.siyuan.menus.menu.element.clientWidth, rect.top + rect.height);
                             } else {
                                 window.siyuan.menus.menu.remove();
                             }
@@ -719,13 +715,7 @@ export class Wnd {
                     // 关闭分屏页签后光标消失
                     const editors = getAllModels().editor;
                     if (editors.length === 0) {
-                        updatePanelByEditor({
-                            protyle: undefined,
-                            focus: true,
-                            pushBackStack: false,
-                            reload: false,
-                            resize: true,
-                        });
+                        clearOBG();
                     } else {
                         editors.forEach(item => {
                             if (!item.element.classList.contains("fn__none")) {
@@ -896,7 +886,7 @@ export class Wnd {
         /// #endif
     }
 
-    public split(direction: TDirection) {
+    public split(direction: Config.TUILayoutDirection) {
         if (this.children.length === 1 && !this.children[0].headElement) {
             // 场景：没有打开的文档，点击标签面板打开
             return this;
@@ -974,13 +964,6 @@ export class Wnd {
                         }
                         previous.resize = undefined;
                         previous.element.classList.add("fn__flex-1");
-                    } else if (!previous.element.classList.contains("fn__flex-1")) {
-                        // 分屏后要均分 https://github.com/siyuan-note/siyuan/issues/5657
-                        if (layout.direction === "lr") {
-                            previous.element.style.width = (previous.element.clientWidth + element.clientWidth) + "px";
-                        } else {
-                            previous.element.style.height = (previous.element.clientHeight + element.clientHeight) + "px";
-                        }
                     }
                     // https://github.com/siyuan-note/siyuan/issues/5844
                     if (layout.children.length > 2 && index === 0) {
@@ -997,6 +980,7 @@ export class Wnd {
             element.nextElementSibling.remove();
         }
         element.remove();
+        fixWndFlex1(layout);
         resizeTabs();
     }
 }

@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/88250/gulu"
 	"github.com/88250/lute/html"
@@ -29,7 +30,25 @@ import (
 	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
-func getParentNextChildID(c *gin.Context) {
+func getBlockTreeInfos(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	var ids []string
+	idsArg := arg["ids"].([]interface{})
+	for _, id := range idsArg {
+		ids = append(ids, id.(string))
+	}
+
+	ret.Data = model.GetBlockTreeInfos(ids)
+}
+
+func getBlockSiblingID(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(http.StatusOK, ret)
 
@@ -39,8 +58,11 @@ func getParentNextChildID(c *gin.Context) {
 	}
 
 	id := arg["id"].(string)
+	parent, previous, next := model.GetBlockSiblingID(id)
 	ret.Data = map[string]string{
-		"id": model.GetParentNextChildID(id),
+		"parent":   parent,
+		"next":     next,
+		"previous": previous,
 	}
 }
 
@@ -331,7 +353,17 @@ func getRefText(c *gin.Context) {
 	if "" == refText {
 		// 空块返回 id https://github.com/siyuan-note/siyuan/issues/10259
 		refText = id
+		ret.Data = refText
+		return
 	}
+
+	if strings.Count(refText, "\\") == len(refText) {
+		// 全部都是 \ 的话使用实体 https://github.com/siyuan-note/siyuan/issues/11473
+		refText = strings.ReplaceAll(refText, "\\", "&#92;")
+		ret.Data = refText
+		return
+	}
+
 	ret.Data = refText
 }
 
@@ -436,6 +468,24 @@ func getBlockIndex(c *gin.Context) {
 	ret.Data = index
 }
 
+func getBlocksIndexes(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	idsArg := arg["ids"].([]interface{})
+	var ids []string
+	for _, id := range idsArg {
+		ids = append(ids, id.(string))
+	}
+	index := model.GetBlocksIndexes(ids)
+	ret.Data = index
+}
+
 func getBlockInfo(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(http.StatusOK, ret)
@@ -447,7 +497,8 @@ func getBlockInfo(c *gin.Context) {
 
 	id := arg["id"].(string)
 
-	tree, err := model.LoadTreeByBlockID(id)
+	// 仅在此处使用带重建索引的加载函数，其他地方不要使用
+	tree, err := model.LoadTreeByBlockIDWithReindex(id)
 	if errors.Is(err, model.ErrIndexing) {
 		ret.Code = 3
 		ret.Msg = model.Conf.Language(56)

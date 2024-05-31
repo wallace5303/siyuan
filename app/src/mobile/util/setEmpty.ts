@@ -6,6 +6,7 @@ import {getRecentDocs} from "../menu/getRecentDocs";
 import {openHistory} from "../../history/history";
 import {App} from "../../index";
 import {setTitle} from "../../dialog/processSystem";
+import {isIPhone} from "../../protyle/util/compatibility";
 
 export const setEmpty = (app: App) => {
     setTitle(window.siyuan.languages.siyuanNote);
@@ -31,8 +32,8 @@ export const setEmpty = (app: App) => {
 <div class="b3-list-item" id="emptyNewNotebook${window.siyuan.config.readonly ? " fn__none" : ""}">
     <svg class="b3-list-item__graphic"><use xlink:href="#iconFilesRoot"></use></svg><span class="fn__space"></span><span class="b3-list-item__text">${window.siyuan.languages.newNotebook}</span>
 </div>
-<div class="b3-list-item" id="emptyHelp">
-    <svg class="b3-list-item__graphic"><use xlink:href="#iconHelp"></use></svg><span class="fn__space"></span><span class="b3-list-item__text">${window.siyuan.languages.help}</span>
+<div class="b3-list-item${isIPhone() ? " fn__none" : ""}" id="emptyHelp">
+    <svg class="b3-list-item__graphic"><use xlink:href="#iconHelp"></use></svg><span class="fn__space"></span><span class="b3-list-item__text">${window.siyuan.languages.userGuide}</span>
 </div>`;
     emptyElement.addEventListener("click", (event) => {
         let target = event.target as HTMLElement;
@@ -77,7 +78,7 @@ export const setEmpty = (app: App) => {
 };
 
 export const setEditor = () => {
-    const toolbarNameElement =  document.getElementById("toolbarName") as HTMLInputElement;
+    const toolbarNameElement = document.getElementById("toolbarName") as HTMLInputElement;
     setTitle(toolbarNameElement.value);
     toolbarNameElement.classList.remove("fn__hidden");
     document.getElementById("editor").classList.remove("fn__none");
